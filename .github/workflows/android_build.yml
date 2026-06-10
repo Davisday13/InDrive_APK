@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     name: Build APK with Buildozer
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
       # 1. Clonar el repositorio
@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      # 3. Instalar dependencias del sistema (Android SDK/NDK lo necesita)
+      # 3. Instalar dependencias del sistema
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -29,16 +29,16 @@ jobs:
             git zip unzip openjdk-17-jdk \
             python3-pip autoconf libtool pkg-config \
             zlib1g-dev libncurses5-dev libncursesw5-dev \
-            libtinfo5 cmake libffi-dev libssl-dev \
+            cmake libffi-dev libssl-dev \
             build-essential ccache
 
       # 4. Instalar buildozer y cython
       - name: Install Buildozer and Cython
         run: |
           pip install --upgrade pip
-          pip install buildozer==1.5.0 cython==0.29.33
+          pip install buildozer cython
 
-      # 5. Cache del SDK/NDK de Android (ahorra ~30 min en compilaciones futuras)
+      # 5. Cache del SDK/NDK de Android
       - name: Cache Buildozer global directory
         uses: actions/cache@v4
         with:
@@ -59,11 +59,7 @@ jobs:
       # 7. Compilar el APK en modo debug
       - name: Build APK
         run: |
-          # Aceptar todas las licencias de Android SDK de antemano
-          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager --licenses || true
-          # Ejecutar buildozer directamente para registrar todos los logs en Actions
-          buildozer -v android debug
+          yes | buildozer -v android debug
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
