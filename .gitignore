@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.env
+.venv
+env/
+venv/
+
+# Backup / archivos innecesarios
+main_app.py
+python recuperar_db.py
+python verificar_db.py
+fix_db.py
+check_db.py
+import_casa.py
+update_house_data.py
+ver_todos.py
+verificar_db.py
+
+# Buildozer output (generados al compilar)
+.buildozer/
+bin/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Imágenes duplicadas
+icon.png.jpeg
+presplash.png.jpeg
