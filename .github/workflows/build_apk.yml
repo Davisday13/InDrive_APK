@@ -59,7 +59,11 @@ jobs:
       # 7. Compilar el APK en modo debug
       - name: Build APK
         run: |
-          buildozer -v android debug 2>&1 | tail -300
+          # Aceptar todas las licencias de Android SDK de antemano
+          yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager --licenses || true
+          # Ejecutar buildozer directamente para registrar todos los logs en Actions
+          buildozer -v android debug
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 

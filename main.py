@@ -1121,6 +1121,7 @@ ScreenManager:
                 size: self.size
                 pos: self.pos
 
+        # Fila superior: Volver + título
         BoxLayout:
             size_hint_y: None
             height: '45dp'
@@ -1144,6 +1145,41 @@ ScreenManager:
                 size_hint_x: None
                 width: '80dp'
 
+        # Navegación de mes: < ENERO 2025 >
+        BoxLayout:
+            size_hint_y: None
+            height: '40dp'
+            spacing: 6
+            Button:
+                text: "◀"
+                size_hint_x: None
+                width: '44dp'
+                background_normal: ''
+                background_color: [1, 1, 1, 0.85]
+                color: 0.08, 0.08, 0.09, 1
+                font_size: '16sp'
+                bold: True
+                on_press: root.go_prev_month()
+            Label:
+                id: lbl_mes_anio
+                text: root.mes_anio_label
+                font_size: '15sp'
+                bold: True
+                color: 0.08, 0.08, 0.09, 1
+                halign: 'center'
+                valign: 'middle'
+            Button:
+                text: "▶"
+                size_hint_x: None
+                width: '44dp'
+                background_normal: ''
+                background_color: [1, 1, 1, 0.85]
+                color: 0.08, 0.08, 0.09, 1
+                font_size: '16sp'
+                bold: True
+                on_press: root.go_next_month()
+
+        # Encabezados días de la semana
         GridLayout:
             cols: 7
             size_hint_y: None
@@ -1988,47 +2024,101 @@ class StatsScreen(Screen):
                 RoundedRectangle(pos=(gx + 4, oy), size=(bar_w, h_ca), radius=[2])
 
 
+MESES_NOMBRES = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
+
 class CalendarScreen(Screen):
+    mes_anio_label = StringProperty('')
+
     def on_enter(self, *args):
-        self.ids.calendar_grid.clear_widgets()
+        """Al entrar, si no tiene fecha seleccionada usa el mes actual."""
         today = datetime.today()
-        first_day = today.replace(day=1)
-        next_month = first_day + timedelta(days=32)
-        last_day = (next_month.replace(day=1) - timedelta(days=1)).day
-        
-        first_weekday = first_day.weekday()
-        for _ in range(first_weekday):
-            self.ids.calendar_grid.add_widget(Label(text=""))
-            
+        if not hasattr(self, '_current_year') or self._current_year is None:
+            self._current_year = today.year
+            self._current_month = today.month
+        self._render_calendar()
+
+    def go_prev_month(self):
+        """Navegar al mes anterior."""
+        if self._current_month == 1:
+            self._current_month = 12
+            self._current_year -= 1
+        else:
+            self._current_month -= 1
+        self._render_calendar()
+
+    def go_next_month(self):
+        """Navegar al mes siguiente."""
+        if self._current_month == 12:
+            self._current_month = 1
+            self._current_year += 1
+        else:
+            self._current_month += 1
+        self._render_calendar()
+
+    def _render_calendar(self):
+        """Dibuja el calendario del mes/año seleccionado."""
+        self.ids.calendar_grid.clear_widgets()
+
+        year = self._current_year
+        month = self._current_month
+
+        # Actualizar label del mes y año
+        self.mes_anio_label = f"{MESES_NOMBRES[month - 1].upper()} {year}"
+
+        first_day = datetime(year, month, 1)
+        # Último día del mes
+        if month == 12:
+            last_day = 31
+        else:
+            last_day = (datetime(year, month + 1, 1) - timedelta(days=1)).day
+
+        # Obtener ganancias del mes desde la DB
         conn = get_db_connection()
         cur = conn.cursor()
+        mes_str = f"{year}-{month:02d}"
         cur.execute("""
             SELECT fecha,
-                   SUM(CASE 
+                   SUM(CASE
                         WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - comision
                         WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria != 'Viaje InDrive' THEN monto
-                        WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Gasto' THEN -monto 
-                        ELSE 0 
+                        WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Gasto' THEN -monto
+                        ELSE 0
                    END) as profit
-            FROM transacciones 
+            FROM transacciones
+            WHERE fecha LIKE ?
             GROUP BY fecha
-        """)
+        """, (mes_str + '%',))
         profit_map = {row[0]: row[1] for row in cur.fetchall()}
         conn.close()
-        
+
+        # Espacios vacíos antes del primer día (semana empieza en Lunes)
+        first_weekday = first_day.weekday()  # 0=Lun, 6=Dom
+        for _ in range(first_weekday):
+            self.ids.calendar_grid.add_widget(Label(text=''))
+
+        today = datetime.today()
+
         for day in range(1, last_day + 1):
             date_obj = first_day.replace(day=day)
             date_str = date_obj.strftime('%Y-%m-%d')
-            
+            is_today = (date_obj.date() == today.date())
+
             if date_str not in profit_map:
+                # Sin transacciones — resaltar si es hoy
+                bg = [0.07, 0.65, 0.60, 0.25] if is_today else [0.98, 0.98, 0.99, 0.9]
+                fc = [0.07, 0.45, 0.40, 1] if is_today else [0.08, 0.08, 0.09, 0.9]
                 btn = Button(
                     text=f"{day}",
                     size_hint_y=None,
                     height='60dp',
                     background_normal='',
-                    background_color=[0.98, 0.98, 0.99, 0.9],
-                    color=[0.08, 0.08, 0.09, 0.9],
-                    font_size='14sp'
+                    background_color=bg,
+                    color=fc,
+                    font_size='14sp',
+                    bold=is_today
                 )
             else:
                 profit = profit_map[date_str]
@@ -2049,10 +2139,10 @@ class CalendarScreen(Screen):
                     valign='middle'
                 )
                 btn.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
-                
+
             btn.bind(on_release=lambda inst, ds=date_str: self.show_day(ds))
             self.ids.calendar_grid.add_widget(btn)
-    
+
     def show_day(self, date_str):
         show_day_details(date_str)
 
