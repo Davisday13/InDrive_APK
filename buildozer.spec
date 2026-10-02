@@ -4,7 +4,7 @@ package.name = indrive_finanzas
 package.domain = org.indrive
 source.dir = .
 source.include_exts = py,png,jpg,jpeg
-version = 1.0.0
+version = 1.1.0
 
 icon.filename = icon.png
 presplash.filename = presplash.png
@@ -13,18 +13,19 @@ presplash.filename = presplash.png
 # python-for-android NO tiene receta para 'requests', añadirla rompe el build.
 requirements = python3,kivy
 
-# Optimizaciones para reducir tamaño
-android.gradle_dependencies = 
-android.add_src = 
-android.add_assets = 
+# Optimizaciones para reducir tamano.
+# IMPORTANTE: estas claves NO deben existir si estan vacias: buildozer convierte
+# el valor vacio en [''] y emite --add-source '' / --add-asset <dir>:  lo que
+# rompe p4a con FileExistsError: src/main/assets/
 android.ignore_assets = yes
 
 # Reducir arquitecturas (solo una para empezar)
-# android.archs = arm64-v8a, armeabi-v7a  # Comenta esto
-android.archs = arm64-v8a  # Solo una arquitectura
+# NO poner comentarios en la misma linea: buildozer los pasa como parte
+# del valor y p4a falla con "storage dir path cannot contain spaces".
+android.archs = arm64-v8a
 
 # Permisos mínimos
-android.permissions = INTERNET
+android.permissions = INTERNET, REQUEST_INSTALL_PACKAGES
 
 orientation = portrait
 fullscreen = 0
@@ -33,12 +34,12 @@ fullscreen = 0
 log_level = 1
 
 # Compresión
-android.numeric_version = 1
+android.numeric_version = 110
 android.gradle_repository = true
 
 # Para reducir el tamaño del APK
-android.ndk = 23c
-android.sdk = 30
+# p4a 2026 exige NDK >= 25 (menor = error, mayor = warning). 25b es limpio.
+android.ndk = 25b
 android.minapi = 21
 
 [buildozer]

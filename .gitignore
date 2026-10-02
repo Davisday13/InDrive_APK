@@ -25,6 +25,9 @@ verificar_db.py
 .buildozer/
 bin/
 
+# Firma de compilacion: nunca en repositorio (ver keystore/LEEME.txt)
+keystore/*.keystore
+
 # IDE
 .vscode/
 .idea/

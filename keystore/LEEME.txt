@@ -1,0 +1,17 @@
+Clave de firma de las compilaciones de depuracion (debug.keystore)
+==================================================================
+
+Quien firme una version con una clave distinta NO podra instalarla por
+encima de la que ya esta en el telefono: Android rechaza la actualizacion
+y el usuario tendria que desinstalar y perderia sus datos locales.
+
+Por eso el keystore de WSL (~/.android/debug.keystore) se respalda aqui.
+Al restaurar:
+
+    mkdir -p ~/.android
+    cp 'keystore/debug.keystore' ~/.android/debug.keystore
+    chmod 600 ~/.android/debug.keystore
+
+NO subir este archivo a un repositorio publico. Esta en .gitignore.
+Guardar una copia aparte (disco externo, gestor de contrasenas) antes de
+borrar la maquina.

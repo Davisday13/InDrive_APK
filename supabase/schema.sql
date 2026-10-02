@@ -137,3 +137,27 @@ END $$;
 -- FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 -- WHERE n.nspname = 'public' AND c.relkind = 'r'
 -- ORDER BY c.relname;
+
+-- ------------------------------------------------------------
+-- 4. ALMACENAMIENTO
+-- Bucket publico para las actualizaciones de la app:
+--   apk/latest.json   -> {"version","version_code","apk","nota","sha256","peso"}
+--   apk/<archivo>.apk -> el APK firmado
+-- El bucket es publico para que cualquier telefono pueda leerlo sin sesion
+-- (el actualizador usa /storage/v1/object/public/...). La escritura solo
+-- la hace quien tenga una sesion autenticada o la clave de servicio.
+-- ------------------------------------------------------------
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('apk', 'apk', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DROP POLICY IF EXISTS "apk_lectura_publica" ON storage.objects;
+CREATE POLICY "apk_lectura_publica" ON storage.objects
+    FOR SELECT TO public
+    USING (bucket_id = 'apk');
+
+DROP POLICY IF EXISTS "apk_escritura" ON storage.objects;
+CREATE POLICY "apk_escritura" ON storage.objects
+    FOR ALL TO authenticated
+    USING (bucket_id = 'apk') WITH CHECK (bucket_id = 'apk');

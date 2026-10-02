@@ -7,6 +7,8 @@ from kivy.uix.popup import Popup
 from kivy.uix.label import Label as KivyLabel
 
 import cloud_db
+import actualizador
+from version import VERSION as VERSION_APP, NOTA as NOTA_APP
 
 from kivy.app import App
 from kivy.lang import Builder
@@ -20,6 +22,13 @@ from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.clock import Clock
 from kivy.graphics import Color, RoundedRectangle, Line, Rectangle
+from kivy.core.window import Window
+
+from widgets import (DateInput, CampoSugerencias, mostrar_selector_fecha,
+                     fecha_iso, mostrar_fecha, hoy_iso, hoy_corto, parse_fecha)
+
+# Que el teclado empuje el campo hacia arriba en vez de taparlo.
+Window.softinput_mode = 'below_target'
 
 DB_NAME = "indrive_finanzas.db"
 writable_db_path = ""
@@ -110,6 +119,217 @@ def mostrar_error(mensaje):
     )
     btn_ok.bind(on_press=popup.dismiss)
     popup.open()
+
+def fecha_de_campo(campo, etiqueta="fecha", por_defecto=None):
+    """YYYY-MM-DD de un DateInput. Devuelve '' y avisa si no se puede usar.
+
+    Si el campo esta vacio se devuelve `por_defecto` (o se avisa, si es None).
+    """
+    texto = "" if campo is None else str(getattr(campo, "text", "")).strip()
+    if not texto:
+        if por_defecto is not None:
+            return por_defecto
+        mostrar_error("Por favor ingresa la %s." % etiqueta)
+        return ""
+    iso = fecha_iso(texto)
+    if not iso:
+        mostrar_error("La %s no es válida.\nEscribe DD/MM/AAAA o usa el calendario." % etiqueta)
+        try:
+            campo.focus = True
+        except Exception:
+            pass
+        return ""
+    return iso
+
+def _num(valor, por_defecto=0.0):
+    try:
+        return float(valor)
+    except Exception:
+        return por_defecto
+
+def _entero(valor, por_defecto=0):
+    try:
+        return int(float(valor))
+    except Exception:
+        return por_defecto
+
+def _sug_texto(tabla, columna, texto):
+    """Sugerencias aprendidas de lo que ya se guardo en esa columna.
+
+    Orden: lo mas usado primero y, a igualdad, lo mas reciente. Despues se
+    filtra por lo que se esta escribiendo. `tabla` y `columna` vienen siempre
+    del codigo, nunca del usuario.
+    """
+    if not tabla or not columna:
+        return []
+    if not all(ch.isalnum() or ch == '_' for ch in tabla + columna):
+        return []
+    consulta = ("SELECT {c} FROM {t} WHERE {c} IS NOT NULL AND {c} != '' "
+                "GROUP BY {c} ORDER BY COUNT(*) DESC, MAX(id) DESC LIMIT 40"
+                ).format(c=columna, t=tabla)
+    try:
+        conn = get_db_connection()
+        filas = conn.execute(consulta).fetchall()
+        conn.close()
+    except Exception:
+        return []
+    patron = (texto or '').strip().lower()
+    salida = []
+    for fila in filas:
+        valor = '' if fila[0] is None else str(fila[0]).strip()
+        if not valor:
+            continue
+        if not patron or valor.lower().startswith(patron) or patron in valor.lower():
+            if valor not in salida:
+                salida.append(valor)
+        if len(salida) >= 12:
+            break
+    return salida
+
+def _sug_de(tabla, columna):
+    """Fuente lista para CampoSugerencias.fuente."""
+    return lambda texto: _sug_texto(tabla, columna, texto)
+
+def _sug_fechas_casa(texto):
+    """Fechas ya usadas en las tablas de la pantalla Casa."""
+    return _sug_fechas(texto, ('casa_pagos_usuario', 'casa_aseo_pagos',
+                               'casa_gastos', 'casa_ahorro', 'casa_deuda_pagos'))
+
+def _sug_fechas(texto, tablas=("transacciones",)):
+    """Fechas ya usadas, de la mas reciente a la mas vieja, en DD/MM/AAAA."""
+    patron = (texto or '').strip()
+    salida = []
+    for tabla in tablas:
+        if not all(ch.isalnum() or ch == '_' for ch in tabla):
+            continue
+        try:
+            conn = get_db_connection()
+            filas = conn.execute(
+                "SELECT fecha FROM {t} WHERE fecha IS NOT NULL AND fecha != '' "
+                "GROUP BY fecha ORDER BY fecha DESC LIMIT 30".format(t=tabla)).fetchall()
+            conn.close()
+        except Exception:
+            continue
+        for fila in filas:
+            corta = mostrar_fecha(fila[0])
+            if corta == '-':
+                continue
+            if not patron or corta.startswith(patron) or patron in corta:
+                if corta not in salida:
+                    salida.append(corta)
+            if len(salida) >= 8:
+                return salida
+    return salida
+
+def _sug_meses(texto):
+    """Meses: los que ya se usaron y, despues, los doce del ano."""
+    patron = (texto or '').strip().lower()
+    usados = _sug_texto('casa_pagos_usuario', 'mes_corresponde', patron)
+    usados += [m for m in _sug_texto('casa_pagos', 'mes_corresponde', patron)
+               if m not in usados]
+    salida = []
+    for valor in usados + [m.capitalize() for m in MESES_ORDER]:
+        if not valor:
+            continue
+        if not patron or valor.lower().startswith(patron):
+            if valor not in salida:
+                salida.append(valor)
+        if len(salida) >= 12:
+            break
+    return salida
+
+def editar_registro(titulo, campos, on_guardar, valores=None, texto_boton="Guardar"):
+    """Formulario generico en un popup para corregir un registro ya guardado.
+
+    campos: lista de {"id", "label", "tipo"} con tipo "texto" | "fecha" | "numero".
+    valores: dict id -> valor inicial.
+    on_guardar: recibe un dict id -> texto; las fechas llegan ya en AAAA-MM-DD.
+    Devuelve el Popup abierto (o None si no hay campos).
+    """
+    if not campos:
+        return None
+    valores = valores or {}
+    entradas = {}
+
+    scroll = ScrollView(do_scroll_x=False, do_scroll_y=True, size_hint_y=1)
+    rejilla = GridLayout(cols=2, spacing=8, padding=[4, 4], size_hint_y=None)
+    rejilla.bind(minimum_height=rejilla.setter('height'))
+    scroll.add_widget(rejilla)
+
+    for campo in campos:
+        cid = campo['id']
+        etiqueta = campo.get('label', cid)
+        tipo = campo.get('tipo', 'texto')
+        rotulo = Label(text=etiqueta, font_size='12sp', color=list(TEXT_SECONDARY),
+                       size_hint_y=None, height='34dp', halign='left', valign='middle')
+        rotulo.bind(size=lambda inst, v: setattr(inst, 'text_size', v))
+        rejilla.add_widget(rotulo)
+
+        inicial = valores.get(cid, '')
+        inicial = '' if inicial is None else str(inicial).strip()
+        if tipo == 'fecha' and inicial:
+            inicial = mostrar_fecha(inicial)
+            if inicial == '-':
+                inicial = ''
+        if tipo == 'fecha':
+            entrada = DateInput(text=inicial, size_hint_y=None, height='36dp', font_size='13sp')
+            entrada.fuente = _sug_fechas
+        else:
+            entrada = TextInput(text=inicial, hint_text=campo.get('hint', ''),
+                                multiline=False, size_hint_y=None, height='36dp',
+                                font_size='13sp',
+                                background_color=[1, 1, 1, 1],
+                                foreground_color=list(TEXT_PRIMARY),
+                                cursor_color=list(PRIMARY),
+                                padding=[8, 8])
+        rejilla.add_widget(entrada)
+        entradas[cid] = (etiqueta, tipo, entrada)
+
+    contenido = BoxLayout(orientation='vertical', spacing=8, padding=10)
+    contenido.add_widget(Label(text=titulo, font_size='15sp', bold=True,
+                               color=list(PRIMARY), size_hint_y=None, height='28dp'))
+    contenido.add_widget(scroll)
+
+    botones = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
+    btn_cancelar = Button(text='Cancelar', background_color=[0.9, 0.3, 0.35, 1],
+                          color=[1, 1, 1, 1], font_size='13sp', bold=True)
+    btn_guardar = Button(text=texto_boton, background_color=list(PRIMARY),
+                         color=[1, 1, 1, 1], font_size='13sp', bold=True)
+    botones.add_widget(btn_cancelar)
+    botones.add_widget(btn_guardar)
+    contenido.add_widget(botones)
+
+    popup = Popup(title='Editar', content=contenido, size_hint=(0.94, 0.86), auto_dismiss=True)
+    btn_cancelar.bind(on_press=popup.dismiss)
+
+    def guardar(*args):
+        salida = {}
+        for cid, (etiqueta, tipo, entrada) in entradas.items():
+            texto = entrada.text.strip()
+            if tipo == 'fecha' and texto:
+                iso = fecha_iso(texto)
+                if not iso:
+                    mostrar_error("La fecha de «%s» no es válida." % etiqueta)
+                    entrada.focus = True
+                    return
+                salida[cid] = iso
+            elif tipo == 'numero':
+                if texto:
+                    try:
+                        float(texto)
+                    except Exception:
+                        mostrar_error("«%s» debe ser un número.\nEjemplo: 15.00" % etiqueta)
+                        entrada.focus = True
+                        return
+                salida[cid] = texto
+            else:
+                salida[cid] = texto
+        popup.dismiss()
+        on_guardar(salida)
+
+    btn_guardar.bind(on_press=guardar)
+    popup.open()
+    return popup
 
 def init_database():
     """Inicializa la base de datos VACÍA - sin datos automáticos"""
@@ -366,6 +586,21 @@ KV = """
     padding: [10, 8]
     multiline: False
 
+<DateInput>:
+    background_color: 1, 1, 1, 1
+    foreground_color: 0.08, 0.08, 0.09, 1
+    cursor_color: 0.07, 0.65, 0.60, 1
+    font_size: '14sp'
+    multiline: False
+
+<CampoSugerencias>:
+    background_color: 1, 1, 1, 1
+    foreground_color: 0.08, 0.08, 0.09, 1
+    cursor_color: 0.07, 0.65, 0.60, 1
+    font_size: '14sp'
+    padding: [10, 8]
+    multiline: False
+
 <FormLabel@Label>:
     font_size: '12sp'
     color: 0.08, 0.08, 0.09, 1
@@ -453,11 +688,19 @@ ScreenManager:
             size_hint_y: 0.60
             do_scroll_x: False
             BoxLayout:
+                id: contenido_dashboard
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
                 spacing: 12
                 padding: [0, 5, 0, 5]
+
+                BoxLayout:
+                    id: caja_actualizacion
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: 6
 
                 RoundedCard:
                     size_hint_y: None
@@ -709,10 +952,9 @@ ScreenManager:
 
                 FormLabel:
                     text: "Fecha:"
-                CustomTextInput:
+                DateInput:
                     id: c_fecha
                     text: datetime.now().strftime("%d/%m/%Y")
-                    
                 FormLabel:
                     text: "Tipo:"
                 BoxLayout:
@@ -774,7 +1016,7 @@ ScreenManager:
 
                 FormLabel:
                     text: "Descripción:"
-                CustomTextInput:
+                CampoSugerencias:
                     id: c_desc
                     hint_text: "Nota..."
 
@@ -1122,12 +1364,118 @@ class DashboardScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._sync_ok = False
+        self._aviso_info = None
+        self._aviso_consultado = False
         Clock.schedule_interval(self._actualizar_estado_sync, 2)
+        Clock.schedule_once(lambda dt: self._consultar_actualizacion(), 5)
+
+    # ------------------------------------------------ actualizaciones ----
+    def _consultar_actualizacion(self, *args):
+        if self._aviso_consultado:
+            return
+        self._aviso_consultado = True
+
+        def _trabajo():
+            info = actualizador.consultar()
+            if actualizador.hay_actualizacion(info):
+                Clock.schedule_once(lambda dt: self._mostrar_aviso(info), 0)
+
+        threading.Thread(target=_trabajo, daemon=True).start()
+
+    def _mostrar_aviso(self, info):
+        try:
+            caja = self.ids.caja_actualizacion
+        except Exception:
+            return
+        if caja.children or not info:
+            return
+        self._aviso_info = info
+        version = str(info.get('version') or '')
+        nota = str(info.get('nota') or NOTA_APP)
+
+        tarjeta = RoundedCard(size_hint_y=None, height='104dp',
+                              bg_color=[1, 1, 1, 1])
+        tarjeta.padding = [10, 6]
+        tarjeta.spacing = 4
+
+        fila_titulo = BoxLayout(size_hint_y=None, height='26dp', spacing=6)
+        self._aviso_titulo = Label(
+            text="Nueva versión %s" % version, font_size='13sp', bold=True,
+            color=list(PRIMARY), halign='left', valign='middle', size_hint_x=1)
+        self._aviso_titulo.bind(size=lambda i, v: setattr(i, 'text_size', v))
+        btn_cerrar = Button(text="✕", size_hint_x=None, width='26dp',
+                            background_color=[0, 0, 0, 0], color=list(TEXT_SECONDARY),
+                            font_size='13sp', bold=True)
+        btn_cerrar.bind(on_press=lambda b: self._ocultar_aviso())
+        fila_titulo.add_widget(self._aviso_titulo)
+        fila_titulo.add_widget(btn_cerrar)
+
+        texto_nota = Label(text=nota, font_size='10sp', color=list(TEXT_SECONDARY),
+                           halign='left', valign='top', size_hint_y=None, height='34dp')
+        texto_nota.bind(size=lambda i, v: setattr(i, 'text_size', v))
+
+        fila_acciones = BoxLayout(size_hint_y=None, height='34dp', spacing=8)
+        btn_actualizar = Button(text="Actualizar ahora", font_size='12sp', bold=True,
+                                background_color=list(PRIMARY), color=[1, 1, 1, 1])
+        btn_despues = Button(text="Más tarde", font_size='12sp',
+                             background_color=[0.95, 0.95, 0.96, 1],
+                             color=list(TEXT_SECONDARY))
+        btn_despues.bind(on_press=lambda b: self._ocultar_aviso())
+        btn_actualizar.bind(on_press=lambda b: self._actualizar_ahora())
+        fila_acciones.add_widget(btn_actualizar)
+        fila_acciones.add_widget(btn_despues)
+
+        tarjeta.add_widget(fila_titulo)
+        tarjeta.add_widget(texto_nota)
+        tarjeta.add_widget(fila_acciones)
+        caja.add_widget(tarjeta)
+
+    def _ocultar_aviso(self, *args):
+        try:
+            caja = self.ids.caja_actualizacion
+            caja.clear_widgets()
+        except Exception:
+            pass
+        self._aviso_info = None
+
+    def _actualizar_ahora(self, *args):
+        if self._aviso_info is None:
+            return
+        self._aviso_titulo.text = "Descargando la actualización…"
+        info = dict(self._aviso_info)
+
+        def avance(recibido, total):
+            if total > 0:
+                pct = int(recibido * 100 / total)
+                Clock.schedule_once(
+                    lambda dt: setattr(self._aviso_titulo, 'text',
+                                       "Descargando… %d%%" % pct), 0)
+
+        def _trabajo():
+            codigo, detalle = actualizador.actualizar(on_avance=avance)
+            Clock.schedule_once(lambda dt: self._fin_actualizacion(codigo, detalle), 0)
+
+        threading.Thread(target=_trabajo, daemon=True).start()
+
+    def _fin_actualizacion(self, codigo, detalle):
+        if not hasattr(self, '_aviso_titulo'):
+            return
+        mensajes = {
+            'sin-conexion': "No se pudo consultar la versión nueva. Revisa la conexión.",
+            'sin-version': "No se pudo consultar la versión nueva.",
+            'descarga-fallo': "No se pudo descargar el APK.",
+            'descarga-invalida': "El archivo descargado no coincide con el publicado.",
+            'instalando': "Abriendo el instalador de Android…",
+            'navegador': "Se abrió el navegador para descargar la actualización.",
+            'al-dia': "Ya tienes la última versión.",
+        }
+        self._aviso_titulo.text = mensajes.get(codigo, codigo)
 
     def _actualizar_estado_sync(self, *args):
         try:
             if not cloud_db.hay_sesion():
-                self.sync_estado = "Sin sesion: los datos estan solo en este telefono"
+                self.sync_estado = ("Sin sesion: los datos estan solo en este "
+                                    "telefono   · v%s" % VERSION_APP)
             else:
                 est = cloud_db.nombre_estado()
                 if est == cloud_db.SINCRONIZADO:
@@ -1142,7 +1490,7 @@ class DashboardScreen(Screen):
                     txt = est
                 if cloud_db.ultimo_sync():
                     txt += "  " + time.strftime("%H:%M", time.localtime(cloud_db.ultimo_sync()))
-                self.sync_estado = txt
+                self.sync_estado = txt + "   · v%s" % VERSION_APP
         except Exception:
             pass
 
@@ -1313,7 +1661,8 @@ class AhorroScreen(Screen):
         if self.current_form == "viaje":
             layout = GridLayout(cols=2, spacing=6)
             layout.add_widget(Label(text="Fecha:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
-            self.txt_fecha = TextInput(text=datetime.now().strftime("%d/%m/%Y"), multiline=False, size_hint_y=None, height='28dp')
+            self.txt_fecha = DateInput(text=hoy_corto(), multiline=False, size_hint_y=None, height='28dp')
+            self.txt_fecha.fuente = _sug_fechas
             layout.add_widget(self.txt_fecha)
             layout.add_widget(Label(text="Bruto:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
             self.txt_bruto = TextInput(hint_text="0.00", multiline=False, size_hint_y=None, height='28dp')
@@ -1341,7 +1690,8 @@ class AhorroScreen(Screen):
         else:
             layout = GridLayout(cols=2, spacing=6)
             layout.add_widget(Label(text="Fecha:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
-            self.txt_fecha = TextInput(text=datetime.now().strftime("%d/%m/%Y"), multiline=False, size_hint_y=None, height='28dp')
+            self.txt_fecha = DateInput(text=hoy_corto(), multiline=False, size_hint_y=None, height='28dp')
+            self.txt_fecha.fuente = _sug_fechas
             layout.add_widget(self.txt_fecha)
             layout.add_widget(Label(text="Tipo:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
             box_tipo = BoxLayout(spacing=4, size_hint_y=None, height='28dp')
@@ -1360,7 +1710,8 @@ class AhorroScreen(Screen):
             self.btn_cat_sel.bind(on_press=lambda btn: self.toggle_o_category())
             layout.add_widget(self.btn_cat_sel)
             layout.add_widget(Label(text="Descripción:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
-            self.txt_desc = TextInput(hint_text="Nota...", multiline=False, size_hint_y=None, height='28dp')
+            self.txt_desc = CampoSugerencias(hint_text="Nota...", multiline=False, size_hint_y=None, height='28dp')
+            self.txt_desc.fuente = _sug_de('transacciones', 'descripcion')
             layout.add_widget(self.txt_desc)
             btn_save = AccentButton(text="Guardar", size_hint_y=None, height='35dp')
             btn_save.bind(on_press=self.save_otro)
@@ -1392,20 +1743,14 @@ class AhorroScreen(Screen):
                 fecha_v = fd
             display_monto = (monto - com) if cat == "Viaje InDrive" else monto
             display_desc = f"{desc} (Viajes: {vj})" if cat == "Viaje InDrive" else desc
-            item = TransactionItem(tid, fecha_v, tp, cat, display_monto, display_desc, self.delete_item)
+            item = TransactionItem(tid, fecha_v, tp, cat, display_monto, display_desc,
+                                   self.delete_item, edit_callback=self.edit_item)
             self.ids.list_transacciones.add_widget(item)
         conn.close()
 
     def save_viaje(self, *args):
-        fecha_s = self.txt_fecha.text.strip()
-        if not fecha_s:
-            mostrar_error("Por favor ingresa la fecha del viaje.")
-            return
-        try:
-            dt = datetime.strptime(fecha_s, "%d/%m/%Y")
-            fecha_db = dt.strftime("%Y-%m-%d")
-        except:
-            mostrar_error("Formato de fecha incorrecto.\nUsa el formato: DD/MM/AAAA\nEjemplo: 01/06/2026")
+        fecha_db = fecha_de_campo(self.txt_fecha, "fecha del viaje")
+        if not fecha_db:
             return
 
         try:
@@ -1440,19 +1785,12 @@ class AhorroScreen(Screen):
             getattr(self, attr).text = ""
 
     def save_otro(self, *args):
-        fecha_s = self.txt_fecha.text.strip()
-        monto_s = self.txt_monto.text.strip()
-        if not fecha_s:
-            mostrar_error("Por favor ingresa la fecha.")
+        fecha_db = fecha_de_campo(self.txt_fecha, "fecha")
+        if not fecha_db:
             return
+        monto_s = self.txt_monto.text.strip()
         if not monto_s:
             mostrar_error("Por favor ingresa el monto.")
-            return
-        try:
-            dt = datetime.strptime(fecha_s, "%d/%m/%Y")
-            fecha_db = dt.strftime("%Y-%m-%d")
-        except:
-            mostrar_error("Formato de fecha incorrecto.\nUsa el formato: DD/MM/AAAA\nEjemplo: 01/06/2026")
             return
         try:
             monto = float(monto_s)
@@ -1482,6 +1820,43 @@ class AhorroScreen(Screen):
         close_db(conn)
         self.refresh_all()
 
+    def edit_item(self, tid):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT fecha, tipo, categoria, monto, comision, viajes, km, descripcion "
+                    "FROM transacciones WHERE id = ?", (tid,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            self.refresh_all()
+            return
+        fd, tp, cat, monto, com, vj, km, desc = row
+        campos = [
+            {'id': 'fecha', 'label': 'Fecha', 'tipo': 'fecha'},
+            {'id': 'tipo', 'label': 'Tipo', 'tipo': 'texto'},
+            {'id': 'categoria', 'label': 'Categoría', 'tipo': 'texto'},
+            {'id': 'monto', 'label': 'Monto', 'tipo': 'numero'},
+            {'id': 'comision', 'label': 'Comisión', 'tipo': 'numero'},
+            {'id': 'viajes', 'label': 'Viajes', 'tipo': 'numero'},
+            {'id': 'km', 'label': 'Kilómetros', 'tipo': 'numero'},
+            {'id': 'descripcion', 'label': 'Descripción', 'tipo': 'texto'},
+        ]
+        valores = {'fecha': fd, 'tipo': tp, 'categoria': cat, 'monto': monto,
+                   'comision': com, 'viajes': vj, 'km': km, 'descripcion': desc}
+
+        def guardar(v):
+            conn = get_db_connection()
+            conn.execute(
+                "UPDATE transacciones SET fecha=?, tipo=?, categoria=?, monto=?, "
+                "comision=?, viajes=?, km=?, descripcion=? WHERE id=?",
+                (v['fecha'] or fd, v['tipo'], v['categoria'], _num(v['monto'], monto),
+                 _num(v['comision'], com), _entero(v['viajes'], vj), _num(v['km'], km),
+                 v['descripcion'], tid))
+            close_db(conn)
+            self.refresh_all()
+
+        editar_registro("Editar movimiento", campos, guardar, valores)
+
 
 class CarroScreen(Screen):
     balance_carro = StringProperty("$0.00")
@@ -1492,6 +1867,27 @@ class CarroScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.bind(var_c_tipo=self.update_c_category_on_type)
+        # Los ids pueden llegar despues de __init__ cuando la pantalla la
+        # construye Kivy desde el KV, así que se cablean al tener padre.
+        self.bind(parent=self._cablear_sugerencias)
+
+    def on_kv_post(self, base_widget):
+        # Tambien aqui: la pantalla se crea desde Python en build(), donde
+        # parent aun no existe y no se dispararia el bind de arriba.
+        self._cablear()
+
+    def _cablear_sugerencias(self, instancia, padre):
+        if padre is None:
+            return
+        self._cablear()
+
+    def _cablear(self):
+        desc = self.ids.get('c_desc')
+        if desc is not None and desc.fuente is None:
+            desc.fuente = _sug_de('transacciones', 'descripcion')
+        fecha = self.ids.get('c_fecha')
+        if fecha is not None and fecha.fuente is None:
+            fecha.fuente = _sug_fechas
 
     def on_enter(self, *args):
         self.refresh_all()
@@ -1527,24 +1923,18 @@ class CarroScreen(Screen):
                 fecha_v = datetime.strptime(fd, "%Y-%m-%d").strftime("%d/%m")
             except:
                 fecha_v = fd
-            item = TransactionItem(tid, fecha_v, tp, cat, monto, desc, self.delete_item)
+            item = TransactionItem(tid, fecha_v, tp, cat, monto, desc, self.delete_item,
+                                   edit_callback=self.edit_item)
             self.ids.list_carro.add_widget(item)
         conn.close()
 
     def save_carro(self):
-        fecha_s = self.ids.c_fecha.text.strip()
         monto_s = self.ids.c_monto.text.strip()
-        if not fecha_s:
-            mostrar_error("Por favor ingresa la fecha.")
-            return
         if not monto_s:
             mostrar_error("Por favor ingresa el monto.")
             return
-        try:
-            dt = datetime.strptime(fecha_s, "%d/%m/%Y")
-            fecha_db = dt.strftime("%Y-%m-%d")
-        except:
-            mostrar_error("Formato de fecha incorrecto.\nUsa el formato: DD/MM/AAAA\nEjemplo: 01/06/2025")
+        fecha_db = fecha_de_campo(self.ids.c_fecha, "fecha")
+        if not fecha_db:
             return
         try:
             monto = float(monto_s)
@@ -1564,6 +1954,39 @@ class CarroScreen(Screen):
         conn.execute("DELETE FROM transacciones WHERE id = ?", (tid,))
         close_db(conn)
         self.refresh_all()
+
+    def edit_item(self, tid):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT fecha, tipo, categoria, monto, descripcion "
+                    "FROM transacciones WHERE id = ?", (tid,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            self.refresh_all()
+            return
+        fd, tp, cat, monto, desc = row
+        campos = [
+            {'id': 'fecha', 'label': 'Fecha', 'tipo': 'fecha'},
+            {'id': 'tipo', 'label': 'Tipo', 'tipo': 'texto'},
+            {'id': 'categoria', 'label': 'Categoría', 'tipo': 'texto'},
+            {'id': 'monto', 'label': 'Monto', 'tipo': 'numero'},
+            {'id': 'descripcion', 'label': 'Descripción', 'tipo': 'texto'},
+        ]
+        valores = {'fecha': fd, 'tipo': tp, 'categoria': cat, 'monto': monto,
+                   'descripcion': desc}
+
+        def guardar(v):
+            conn = get_db_connection()
+            conn.execute(
+                "UPDATE transacciones SET fecha=?, tipo=?, categoria=?, monto=?, "
+                "descripcion=? WHERE id=?",
+                (v['fecha'] or fd, v['tipo'], v['categoria'],
+                 _num(v['monto'], monto), v['descripcion'], tid))
+            close_db(conn)
+            self.refresh_all()
+
+        editar_registro("Editar movimiento del carro", campos, guardar, valores)
 
 
 class StatsScreen(Screen):
@@ -1789,7 +2212,8 @@ class CalendarScreen(Screen):
 
 
 class TransactionItem(BoxLayout):
-    def __init__(self, tid, fecha, tipo, cat, monto, desc, delete_callback, **kwargs):
+    def __init__(self, tid, fecha, tipo, cat, monto, desc, delete_callback,
+                 edit_callback=None, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
@@ -1821,6 +2245,12 @@ class TransactionItem(BoxLayout):
 
         self.add_widget(info_layout)
         self.add_widget(lbl_monto)
+        if edit_callback is not None:
+            btn_edit = Button(text="✎", size_hint_x=None, width='26dp',
+                              background_color=[0, 0, 0, 0], color=[0.07, 0.65, 0.60, 1],
+                              bold=True, font_size='15sp')
+            btn_edit.bind(on_press=lambda btn: edit_callback(tid))
+            self.add_widget(btn_edit)
         self.add_widget(btn_del)
 
     def _update_rect(self, instance, value):
@@ -2180,7 +2610,7 @@ class CasaScreen(Screen):
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d")
 
-    def _row(self, cells, colors=None):
+    def _row(self, cells, colors=None, on_edit=None):
         r = BoxLayout(orientation='horizontal', size_hint_y=None, height='30dp', spacing=2, padding=[2, 1])
         with r.canvas.before:
             Color(rgba=[1, 1, 1, 1])
@@ -2192,7 +2622,99 @@ class CasaScreen(Screen):
             l = Label(text=str(txt) if txt else '-', font_size='9sp', color=c, size_hint_x=w, halign='left', valign='middle')
             l.bind(size=lambda i, v: setattr(i, 'text_size', v))
             r.add_widget(l)
+        if on_edit is not None:
+            b = Button(text="✎", size_hint_x=None, width='26dp', font_size='13sp',
+                       background_color=[0, 0, 0, 0], color=[0.07, 0.65, 0.60, 1], bold=True)
+            b.bind(on_press=lambda inst, cb=on_edit: cb())
+            r.add_widget(b)
         return r
+
+    def _editar_casa(self, tabla, fila_id, campos, valores, refrescar=None):
+        """campos: [(columna, etiqueta, tipo)] con tipo texto|fecha|numero."""
+        filas = [{'id': c[0], 'label': c[1], 'tipo': c[2]} for c in campos]
+        columnas = [c[0] for c in campos]
+        tipos = dict((c[0], c[2]) for c in campos)
+
+        def guardar(v):
+            sets = []
+            args = []
+            for columna in columnas:
+                valor = v.get(columna, '')
+                if tipos[columna] == 'numero':
+                    args.append(_num(valor, 0.0))
+                else:
+                    args.append(valor)
+                sets.append('%s = ?' % columna)
+            if tabla == 'casa_ahorro' and 'monto' in columnas:
+                sets.append('ahorro = ?')
+                args.append(_num(v.get('monto', 0), 0.0))
+            args.append(fila_id)
+            conn = get_db_connection()
+            conn.execute('UPDATE %s SET %s WHERE id = ?' % (tabla, ', '.join(sets)), args)
+            close_db(conn)
+            if refrescar is not None:
+                refrescar()
+            else:
+                self._render_tab()
+
+        editar_registro('Editar registro', filas, guardar, valores)
+
+    # -------- editores de cada lista de la pantalla Casa --------
+    def _editar_pago_casa(self, r):
+        self._editar_casa('casa_pagos', r[0], [
+            ('fecha_pago', 'Fecha', 'fecha'), ('monto', 'Monto', 'numero'),
+            ('mes_corresponde', 'Mes', 'texto'), ('pendiente', 'Pendiente', 'numero'),
+            ('pago_hasta', 'Pago hasta', 'fecha'),
+        ], {'fecha_pago': r[1], 'monto': r[2], 'mes_corresponde': r[3],
+            'pendiente': r[4], 'pago_hasta': r[5]})
+
+    def _editar_pago_usuario(self, r):
+        self._editar_casa('casa_pagos_usuario', r[0], [
+            ('fecha', 'Fecha', 'fecha'), ('monto', 'Monto', 'numero'),
+            ('mes_corresponde', 'Mes', 'texto'), ('pendiente', 'Pendiente', 'numero'),
+            ('pago_hasta', 'Pago hasta', 'fecha'),
+        ], {'fecha': r[1], 'monto': r[2], 'mes_corresponde': r[3],
+            'pendiente': r[4], 'pago_hasta': r[5]})
+
+    def _editar_aseo_casa(self, r):
+        self._editar_casa('casa_pagos', r[0], [
+            ('mes_corresponde', 'Mes', 'texto'), ('tasa_aseo', 'Tasa', 'numero'),
+        ], {'mes_corresponde': r[3], 'tasa_aseo': r[7]})
+
+    def _editar_aseo_pago(self, r):
+        self._editar_casa('casa_aseo_pagos', r[0], [
+            ('fecha', 'Fecha', 'fecha'), ('monto_pagado', 'Pagado', 'numero'),
+        ], {'fecha': r[1], 'monto_pagado': r[2]})
+
+    def _editar_gasto_casa(self, r):
+        self._editar_casa('casa_pagos', r[0], [
+            ('gasto_fecha', 'Fecha', 'fecha'), ('gasto_concepto', 'Concepto', 'texto'),
+            ('gasto_monto', 'Monto', 'numero'),
+        ], {'gasto_fecha': r[10], 'gasto_concepto': r[11], 'gasto_monto': r[12]})
+
+    def _editar_gasto(self, r):
+        self._editar_casa('casa_gastos', r[0], [
+            ('fecha', 'Fecha', 'fecha'), ('concepto', 'Concepto', 'texto'),
+            ('monto', 'Monto', 'numero'), ('tipo', 'Tipo', 'texto'),
+        ], {'fecha': r[1], 'concepto': r[2], 'monto': r[3], 'tipo': r[4]})
+
+    def _editar_adic_casa(self, r):
+        self._editar_casa('casa_pagos', r[0], [
+            ('pago_adic_fecha', 'Fecha', 'fecha'),
+            ('pago_adic_monto', 'Monto', 'numero'), ('ahorro', 'Ahorro', 'numero'),
+        ], {'pago_adic_fecha': r[13], 'pago_adic_monto': r[14], 'ahorro': r[15]})
+
+    def _editar_ahorro(self, r):
+        self._editar_casa('casa_ahorro', r[0], [
+            ('fecha', 'Fecha', 'fecha'), ('monto', 'Monto', 'numero'),
+            ('concepto', 'Concepto', 'texto'),
+        ], {'fecha': r[1], 'monto': r[2], 'concepto': r[3]})
+
+    def _editar_deuda(self, p):
+        self._editar_casa('casa_deuda_pagos', p[0], [
+            ('fecha', 'Fecha', 'fecha'), ('monto_pagado', 'Monto', 'numero'),
+            ('descripcion', 'Descripcion', 'texto'),
+        ], {'fecha': p[1], 'monto_pagado': p[2], 'descripcion': p[3]})
 
     def _hdr(self, cols):
         h = BoxLayout(orientation='horizontal', size_hint_y=None, height='24dp', spacing=2, padding=[2, 1])
@@ -2226,7 +2748,8 @@ class CasaScreen(Screen):
         form.add_widget(Label(text="Nuevo pago alquiler", font_size='10sp', bold=True, color=[0.07,0.65,0.60,1], size_hint_y=None, height='16dp'))
         f0 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
         f0.add_widget(Label(text="Fecha:", font_size='10sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_pf = TextInput(hint_text="YYYY-MM-DD", text=self._now_str(), multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_pf = DateInput(text=hoy_corto(), multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_pf.fuente = _sug_fechas_casa
         f0.add_widget(self.txt_pf)
         form.add_widget(f0)
         f1 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
@@ -2236,7 +2759,8 @@ class CasaScreen(Screen):
         form.add_widget(f1)
         f2 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
         f2.add_widget(Label(text="Mes:", font_size='10sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_pd = TextInput(hint_text="ej: agosto", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_pd = CampoSugerencias(hint_text="ej: agosto", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_pd.fuente = _sug_meses
         f2.add_widget(self.txt_pd)
         form.add_widget(f2)
         f3 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
@@ -2246,7 +2770,8 @@ class CasaScreen(Screen):
         form.add_widget(f3)
         f4 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
         f4.add_widget(Label(text="Pago Hasta:", font_size='10sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_ph = TextInput(hint_text="ej: 15/06/2025", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_ph = DateInput(hint_text="DD/MM/AAAA", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_ph.fuente = _sug_fechas_casa
         f4.add_widget(self.txt_ph)
         form.add_widget(f4)
         btn = AccentButton(text="Guardar", size_hint_y=None, height='28dp')
@@ -2259,24 +2784,26 @@ class CasaScreen(Screen):
             for r in rows:
                 pc = [0.90,0.30,0.35,1] if float(r[4] or 0)>0 else None
                 c.add_widget(self._row([
-                    (str(r[1])[:10] if r[1] else '-', 0.18),
+                    (mostrar_fecha(r[1]), 0.18),
                     (f"${float(r[2] or 0):,.2f}", 0.13),
                     (str(r[3])[:20] if r[3] else '-', 0.22),
                     (f"${float(r[4] or 0):,.2f}", 0.12),
-                    (str(r[5])[:12] if r[5] else '-', 0.17),
-                ], [None,None,None,pc,None]))
+                    (mostrar_fecha(r[5]), 0.17),
+                ], [None,None,None,pc,None],
+                    on_edit=lambda rr=r: self._editar_pago_casa(rr)))
 
         if tot_user > 0:
             c.add_widget(Label(text="Tus pagos", font_size='9sp', bold=True, color=[0.07,0.65,0.60,1], size_hint_y=None, height='18dp'))
             conn = get_db_connection()
-            for f,m,ms,p,ph in conn.execute("SELECT fecha, monto, mes_corresponde, pendiente, pago_hasta FROM casa_pagos_usuario WHERE cliente_id=? ORDER BY id DESC LIMIT 10", (cid,)):
+            for fid,f,m,ms,p,ph in conn.execute("SELECT id, fecha, monto, mes_corresponde, pendiente, pago_hasta FROM casa_pagos_usuario WHERE cliente_id=? ORDER BY id DESC LIMIT 10", (cid,)):
                 c.add_widget(self._row([
-                    (str(f)[:10] if f else '-',0.18),
+                    (mostrar_fecha(f),0.18),
                     (f"${float(m or 0):,.2f}",0.13),
                     (str(ms)[:20] if ms else '-',0.22),
                     (f"${float(p or 0):,.2f}",0.12),
-                    (str(ph)[:12] if ph else '-',0.17),
-                ],[None,[0.07,0.65,0.60,1],None,None,None]))
+                    (mostrar_fecha(ph),0.17),
+                ],[None,[0.07,0.65,0.60,1],None,None,None],
+                    on_edit=lambda rr=(fid,f,m,ms,p,ph): self._editar_pago_usuario(rr)))
             conn.close()
 
     def _save_pago(self, *args):
@@ -2289,12 +2816,20 @@ class CasaScreen(Screen):
         try: pp = float(pp) if pp else 0
         except: mostrar_error("Pendiente invalido."); return
         ph = self.txt_ph.text.strip()
+        if ph:
+            ph = fecha_iso(ph)
+            if not ph:
+                mostrar_error("\"Pago hasta\" no es una fecha válida.")
+                return
         conn = get_db_connection()
-        fe = self.txt_pf.text.strip() or self._now_str()
+        fe = fecha_de_campo(self.txt_pf, "fecha", self._now_str())
+        if not fe:
+            conn.close()
+            return
         conn.execute("INSERT INTO casa_pagos_usuario (cliente_id, fecha, monto, mes_corresponde, pendiente, pago_hasta) VALUES (?,?,?,?,?,?)", (self.cliente_actual_id, fe, v, ms, pp, ph))
         close_db(conn)
         self.txt_pm.text = ""; self.txt_pd.text = ""; self.txt_pp.text = ""; self.txt_ph.text = ""
-        self.txt_pf.text = self._now_str()
+        self.txt_pf.text = hoy_corto()
         self._render_tab()
 
     # ===================== ASEO =====================
@@ -2319,12 +2854,14 @@ class CasaScreen(Screen):
         form.add_widget(Label(text="Agregar aseo", font_size='10sp', bold=True, color=[0.07,0.65,0.60,1], size_hint_y=None, height='18dp'))
         f0 = BoxLayout(size_hint_y=None, height='22dp', spacing=4)
         f0.add_widget(Label(text="Fecha:", font_size='9sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_a_fec = TextInput(hint_text="DD/MM/YYYY", multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_a_fec = DateInput(multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_a_fec.fuente = _sug_fechas_casa
         f0.add_widget(self.txt_a_fec)
         form.add_widget(f0)
         f1 = BoxLayout(size_hint_y=None, height='22dp', spacing=4)
         f1.add_widget(Label(text="Mes:", font_size='9sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_a_mes = TextInput(hint_text="ej: marzo", multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_a_mes = CampoSugerencias(hint_text="ej: marzo", multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_a_mes.fuente = _sug_meses
         f1.add_widget(self.txt_a_mes)
         form.add_widget(f1)
         f2 = BoxLayout(size_hint_y=None, height='22dp', spacing=4)
@@ -2350,13 +2887,16 @@ class CasaScreen(Screen):
                     (str(r[3])[:22] if r[3] else '-', 0.3),
                     (f"${tase:,.2f}" if tase else '-', 0.25),
                     (f"${pagado:,.2f}", 0.25),
-                ], [None,None,None]))
+                ], [None,None,None],
+                    on_edit=lambda rr=r: self._editar_aseo_casa(rr)))
 
         if pagado > 0:
             c.add_widget(Label(text="Pagos realizados", font_size='9sp', bold=True, color=[0.07,0.65,0.60,1], size_hint_y=None, height='16dp'))
             conn = get_db_connection()
-            for f,m in conn.execute("SELECT fecha, monto_pagado FROM casa_aseo_pagos WHERE cliente_id=? ORDER BY id DESC LIMIT 10", (cid,)):
-                c.add_widget(self._row([(str(f)[:10] if f else '-',0.4),(f"${float(m or 0):,.2f}",0.3)],[None,[0.07,0.65,0.60,1]]))
+            for fid,f,m in conn.execute("SELECT id, fecha, monto_pagado FROM casa_aseo_pagos WHERE cliente_id=? ORDER BY id DESC LIMIT 10", (cid,)):
+                c.add_widget(self._row([(mostrar_fecha(f),0.4),(f"${float(m or 0):,.2f}",0.3)],
+                                       [None,[0.07,0.65,0.60,1]],
+                                       on_edit=lambda rr=(fid,f,m): self._editar_aseo_pago(rr)))
             conn.close()
 
     def _save_aseo(self, *args):
@@ -2368,14 +2908,16 @@ class CasaScreen(Screen):
         try: pagado = float(pagado) if pagado else 0
         except: mostrar_error("Monto invalido."); return
         mes = self.txt_a_mes.text.strip()
-        fe = self.txt_a_fec.text.strip() or self._now_str()
+        fe = fecha_de_campo(self.txt_a_fec, "fecha", self._now_str())
+        if not fe:
+            return
         conn = get_db_connection()
         conn.execute("INSERT INTO casa_pagos (cliente_id, fecha_pago, monto, mes_corresponde, tasa_aseo) VALUES (?,?,?,?,?)", (self.cliente_actual_id, fe, pagado, mes, tasa))
         if pagado > 0:
             conn.execute("INSERT INTO casa_aseo_pagos (cliente_id, fecha, monto_pagado) VALUES (?,?,?)", (self.cliente_actual_id, fe, pagado))
         close_db(conn)
         self.txt_a_mes.text = ""; self.txt_a_tasa.text = ""; self.txt_a_pagado.text = ""
-        self.txt_a_fec.text = self._now_str()
+        self.txt_a_fec.text = hoy_corto()
         self._render_tab()
 
     # ===================== GASTOS =====================
@@ -2395,7 +2937,8 @@ class CasaScreen(Screen):
         form.add_widget(Label(text="Nuevo gasto", font_size='10sp', bold=True, color=[0.95,0.50,0.20,1], size_hint_y=None, height='16dp'))
         f0 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
         f0.add_widget(Label(text="Fecha:", font_size='10sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_gf = TextInput(hint_text="YYYY-MM-DD", text=self._now_str(), multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_gf = DateInput(text=hoy_corto(), multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_gf.fuente = _sug_fechas_casa
         f0.add_widget(self.txt_gf)
         form.add_widget(f0)
         f1 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
@@ -2405,12 +2948,14 @@ class CasaScreen(Screen):
         form.add_widget(f1)
         f2 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
         f2.add_widget(Label(text="Concepto:", font_size='10sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_gc = TextInput(hint_text="ej: pago seguro, universidad...", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_gc = CampoSugerencias(hint_text="ej: pago seguro, universidad...", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_gc.fuente = _sug_de('casa_gastos', 'concepto')
         f2.add_widget(self.txt_gc)
         form.add_widget(f2)
         f3 = BoxLayout(size_hint_y=None, height='24dp', spacing=4)
         f3.add_widget(Label(text="Tipo:", font_size='10sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_gt = TextInput(hint_text="casa, prestamo, otro", text="casa", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_gt = CampoSugerencias(hint_text="casa, prestamo, otro", text="casa", multiline=False, font_size='11sp', size_hint_x=0.7)
+        self.txt_gt.fuente = _sug_de('casa_gastos', 'tipo')
         f3.add_widget(self.txt_gt)
         form.add_widget(f3)
         btn = AccentButton(text="Guardar", size_hint_y=None, height='28dp')
@@ -2422,22 +2967,24 @@ class CasaScreen(Screen):
             c.add_widget(self._hdr([("Fecha",0.25),("Concepto",0.45),("Monto",0.20)]))
             for r in rows:
                 c.add_widget(self._row([
-                    (str(r[10])[:10] if r[10] else '-', 0.25),
+                    (mostrar_fecha(r[10]), 0.25),
                     (str(r[11])[:30] if r[11] else '-', 0.45),
                     (f"${float(r[12] or 0):,.2f}", 0.20),
-                ], [None,None,[0.95,0.50,0.20,1]]))
+                ], [None,None,[0.95,0.50,0.20,1]],
+                    on_edit=lambda rr=r: self._editar_gasto_casa(rr)))
 
         if ug > 0:
             c.add_widget(Label(text="Tus gastos", font_size='9sp', bold=True, color=[0.95,0.50,0.20,1], size_hint_y=None, height='18dp'))
             conn = get_db_connection()
-            for f,con,m,tp in conn.execute("SELECT fecha, concepto, monto, tipo FROM casa_gastos ORDER BY id DESC LIMIT 10"):
+            for fid,f,con,m,tp in conn.execute("SELECT id, fecha, concepto, monto, tipo FROM casa_gastos ORDER BY id DESC LIMIT 10"):
                 tipo_txt = str(tp)[:8] if tp else 'casa'
                 c.add_widget(self._row([
-                    (str(f)[:10] if f else '-',0.2),
+                    (mostrar_fecha(f),0.2),
                     (str(con)[:30] if con else '-',0.35),
                     (f"${float(m or 0):,.2f}",0.15),
                     (tipo_txt,0.15),
-                ],[None,None,[0.95,0.50,0.20,1],[0.95,0.70,0.20,1] if tp=='prestamo' else None]))
+                ],[None,None,[0.95,0.50,0.20,1],[0.95,0.70,0.20,1] if tp=='prestamo' else None],
+                    on_edit=lambda rr=(fid,f,con,m,tp): self._editar_gasto(rr)))
             conn.close()
 
     def _save_gasto(self, *args):
@@ -2447,11 +2994,14 @@ class CasaScreen(Screen):
         except: mostrar_error("Monto invalido."); return
         con = self.txt_gc.text.strip()
         tp = self.txt_gt.text.strip() or 'casa'
-        fe = self.txt_gf.text.strip() or self._now_str()
+        fe = fecha_de_campo(self.txt_gf, "fecha", self._now_str())
+        if not fe:
+            return
         conn = get_db_connection()
         conn.execute("INSERT INTO casa_gastos (fecha, concepto, monto, tipo) VALUES (?,?,?,?)", (fe, con, v, tp))
         close_db(conn)
         self.txt_gm.text = ""; self.txt_gc.text = ""; self.txt_gt.text = "casa"
+        self.txt_gf.text = hoy_corto()
         self._render_tab()
 
     # ===================== AHORRO =====================
@@ -2477,7 +3027,8 @@ class CasaScreen(Screen):
         form.add_widget(Label(text="Agregar ahorro", font_size='10sp', bold=True, color=[0.07,0.65,0.60,1], size_hint_y=None, height='16dp'))
         f0 = BoxLayout(size_hint_y=None, height='22dp', spacing=4)
         f0.add_widget(Label(text="Fecha:", font_size='9sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_af = TextInput(hint_text="DD/MM/YYYY", multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_af = DateInput(text=hoy_corto(), multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_af.fuente = _sug_fechas_casa
         f0.add_widget(self.txt_af)
         form.add_widget(f0)
         f1 = BoxLayout(size_hint_y=None, height='22dp', spacing=4)
@@ -2487,7 +3038,8 @@ class CasaScreen(Screen):
         form.add_widget(f1)
         f2 = BoxLayout(size_hint_y=None, height='22dp', spacing=4)
         f2.add_widget(Label(text="Concepto:", font_size='9sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_acon = TextInput(hint_text="ej: abono prestamo...", multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_acon = CampoSugerencias(hint_text="ej: abono prestamo...", multiline=False, font_size='10sp', size_hint_x=0.7)
+        self.txt_acon.fuente = _sug_de('casa_ahorro', 'concepto')
         f2.add_widget(self.txt_acon)
         form.add_widget(f2)
         btn = AccentButton(text="Guardar", size_hint_y=None, height='24dp')
@@ -2501,20 +3053,22 @@ class CasaScreen(Screen):
             for r in pagos_adic:
                 ah = float(r[15] or 0)
                 c.add_widget(self._row([
-                    (str(r[13])[:10] if r[13] else '-', 0.3),
+                    (mostrar_fecha(r[13]), 0.3),
                     (f"${float(r[14] or 0):,.2f}", 0.25),
                     (f"${ah:,.2f}" if ah > 0 else '-', 0.25),
-                ], [None,None,[0.07,0.65,0.60,1] if ah > 0 else None]))
+                ], [None,None,[0.07,0.65,0.60,1] if ah > 0 else None],
+                    on_edit=lambda rr=r: self._editar_adic_casa(rr)))
 
         if user_rows:
             c.add_widget(Label(text="Tus ahorros", font_size='9sp', bold=True, color=[0.07,0.65,0.60,1], size_hint_y=None, height='18dp'))
             c.add_widget(self._hdr([("Fecha",0.3),("Monto",0.25),("Concepto",0.3)]))
             for r in user_rows:
                 c.add_widget(self._row([
-                    (str(r[1])[:10] if r[1] else '-', 0.3),
+                    (mostrar_fecha(r[1]), 0.3),
                     (f"${float(r[2] or 0):,.2f}", 0.25),
                     (str(r[3])[:22] if r[3] else '-', 0.3),
-                ], [None,[0.07,0.65,0.60,1],None]))
+                ], [None,[0.07,0.65,0.60,1],None],
+                    on_edit=lambda rr=r: self._editar_ahorro(rr)))
 
     def _save_ahorro(self, *args):
         m = self.txt_am.text.strip()
@@ -2522,11 +3076,13 @@ class CasaScreen(Screen):
         try: m = float(m)
         except: mostrar_error("Monto invalido."); return
         con = self.txt_acon.text.strip()
-        fe = self.txt_af.text.strip() or self._now_str()
+        fe = fecha_de_campo(self.txt_af, "fecha", self._now_str())
+        if not fe:
+            return
         conn = get_db_connection()
         conn.execute("INSERT INTO casa_ahorro (fecha, monto, concepto, ahorro) VALUES (?,?,?,?)", (fe, m, con, m))
         close_db(conn)
-        self.txt_af.text = ""; self.txt_am.text = ""; self.txt_acon.text = ""
+        self.txt_af.text = hoy_corto(); self.txt_am.text = ""; self.txt_acon.text = ""
         self._render_tab()
 
     # ===================== DEUDA =====================
@@ -2548,7 +3104,8 @@ class CasaScreen(Screen):
 
         f0 = BoxLayout(size_hint_y=None, height='32dp', spacing=6)
         f0.add_widget(Label(text="Fecha:", font_size='11sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_df = TextInput(hint_text="DD/MM/YYYY", multiline=False, font_size='12sp', size_hint_x=0.7)
+        self.txt_df = DateInput(text=hoy_corto(), multiline=False, font_size='12sp', size_hint_x=0.7)
+        self.txt_df.fuente = _sug_fechas_casa
         f0.add_widget(self.txt_df)
         form.add_widget(f0)
 
@@ -2560,7 +3117,8 @@ class CasaScreen(Screen):
 
         f2 = BoxLayout(size_hint_y=None, height='32dp', spacing=6)
         f2.add_widget(Label(text="Descripcion:", font_size='11sp', color=[0.3,0.3,0.35,1], size_hint_x=0.3))
-        self.txt_ddesc = TextInput(hint_text="ej: abono a deuda...", multiline=False, font_size='12sp', size_hint_x=0.7)
+        self.txt_ddesc = CampoSugerencias(hint_text="ej: abono a deuda...", multiline=False, font_size='12sp', size_hint_x=0.7)
+        self.txt_ddesc.fuente = _sug_de('casa_deuda_pagos', 'descripcion')
         f2.add_widget(self.txt_ddesc)
         form.add_widget(f2)
 
@@ -2589,17 +3147,20 @@ class CasaScreen(Screen):
             c.add_widget(self._hdr([("Fecha",0.25),("Monto",0.20),("Descripcion",0.45)]))
             for p in pagos:
                 c.add_widget(self._row([
-                    (str(p[1])[:10] if p[1] else '-', 0.25),
+                    (mostrar_fecha(p[1]), 0.25),
                     (f"${float(p[2] or 0):,.2f}", 0.20),
                     (str(p[3])[:28] if p[3] else '-', 0.45),
-                ], [None,[0.07,0.65,0.60,1],None]))
+                ], [None,[0.07,0.65,0.60,1],None],
+                    on_edit=lambda rr=p: self._editar_deuda(rr)))
 
     def _save_deuda(self, *args):
         v = self.txt_dp.text.strip()
         if not v: mostrar_error("Ingresa el monto."); return
         try: v = float(v)
         except: mostrar_error("Monto invalido."); return
-        fe = self.txt_df.text.strip() or self._now_str()
+        fe = fecha_de_campo(self.txt_df, "fecha", self._now_str())
+        if not fe:
+            return
         desc = self.txt_ddesc.text.strip()
         conn = get_db_connection()
         conn.execute("INSERT INTO casa_deuda_pagos (cliente_id, fecha, monto_pagado, descripcion) VALUES (?,?,?,?)", (self.cliente_actual_id, fe, v, desc))
@@ -2607,7 +3168,7 @@ class CasaScreen(Screen):
         close_db(conn)
         self.txt_dp.text = ""
         self.txt_ddesc.text = ""
-        self.txt_df.text = self._now_str()
+        self.txt_df.text = hoy_corto()
         self._render_tab()
 
 
@@ -2821,15 +3382,36 @@ class InDriveApp(App):
             pass
 
     def on_start(self):
-        from kivy.core.window import Window
         Window.bind(on_keyboard=self._on_key_down)
         super().on_start()
 
     def _on_key_down(self, window, key, scancode, codepoint, modifiers):
-        if key == 27:
-            self._handle_back()
+        if key != 27:
+            return False
+        # Atras en tres pasos: primero cierra el teclado, luego cualquier
+        # ventana superpuesta y solo al final navega. Sin esto, escribir en
+        # un campo salia de la pantalla en cuanto se tocaba Atras.
+        widget = getattr(window, 'focus', None)
+        if widget is not None and getattr(widget, 'focus', False):
+            try:
+                widget.focus = False
+            except Exception:
+                pass
             return True
-        return False
+        try:
+            superiores = list(getattr(window, 'children', []) or [])
+        except Exception:
+            superiores = []
+        for hijo in reversed(superiores):
+            nombre = hijo.__class__.__name__
+            if nombre in ('Popup', 'DropDown', 'ModalView'):
+                try:
+                    hijo.dismiss()
+                except Exception:
+                    pass
+                return True
+        self._handle_back()
+        return True
 
     def _handle_back(self):
         from kivy.uix.popup import Popup
