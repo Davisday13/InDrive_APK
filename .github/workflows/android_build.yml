@@ -63,7 +63,20 @@ jobs:
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
-      # 8. Subir el APK como artifact descargable
+      # 8. Renombrar el APK con el nombre de la app y su version
+      #    buildozer lo genera como bin/<paquete>-<version>-<arch>-debug.apk
+      - name: Rename APK con nombre y version
+        run: |
+          VERSION=$(grep -E '^version[[:space:]]*=' buildozer.spec | head -n1 | cut -d= -f2 | tr -d ' ')
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          FIRST=$(ls bin/*.apk 2>/dev/null | head -n1)
+          if [ -z "$FIRST" ]; then echo "::error::No se genero ningun APK"; exit 1; fi
+          NUEVO="bin/InDrive-Finanzas-${VERSION}.apk"
+          mv "$FIRST" "$NUEVO"
+          echo "APK generado: $NUEVO"
+          ls -la bin/
+
+      # 9. Subir el APK como artifact descargable
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

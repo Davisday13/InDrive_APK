@@ -3,30 +3,44 @@ title = InDrive Finanzas
 package.name = indrive_finanzas
 package.domain = org.indrive
 source.dir = .
-source.include_exts = py,png,jpg,db
+source.include_exts = py,png,jpg,jpeg
 version = 1.0.0
 
-# Icono y pantalla de inicio (Splash)
 icon.filename = icon.png
 presplash.filename = presplash.png
 
-# Requerimientos básicos
+# La app solo usa la libreria estandar (urllib) para hablar con Supabase:
+# python-for-android NO tiene receta para 'requests', añadirla rompe el build.
 requirements = python3,kivy
 
-# Orientación vertical para celulares
+# Optimizaciones para reducir tamaño
+android.gradle_dependencies = 
+android.add_src = 
+android.add_assets = 
+android.ignore_assets = yes
+
+# Reducir arquitecturas (solo una para empezar)
+# android.archs = arm64-v8a, armeabi-v7a  # Comenta esto
+android.archs = arm64-v8a  # Solo una arquitectura
+
+# Permisos mínimos
+android.permissions = INTERNET
+
 orientation = portrait
 fullscreen = 0
 
-# Permisos
-android.permissions = INTERNET
+# Logging reducido
+log_level = 1
 
-# Configuración de compilación Android
-android.api = 33
+# Compresión
+android.numeric_version = 1
+android.gradle_repository = true
+
+# Para reducir el tamaño del APK
+android.ndk = 23c
+android.sdk = 30
 android.minapi = 21
-android.ndk = 25b
-android.archs = arm64-v8a, armeabi-v7a
-android.allow_backup = True
 
 [buildozer]
-log_level = 2
+log_level = 1
 warn_on_root = 1
