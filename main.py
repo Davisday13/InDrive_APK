@@ -25,7 +25,8 @@ from kivy.graphics import Color, RoundedRectangle, Line, Rectangle
 from kivy.core.window import Window
 
 from widgets import (DateInput, CampoSugerencias, mostrar_selector_fecha,
-                     fecha_iso, mostrar_fecha, hoy_iso, hoy_corto, parse_fecha)
+                     fecha_iso, mostrar_fecha, hoy_iso, hoy_corto, parse_fecha,
+                     BarraAvance)
 
 # Que el teclado empuje el campo hacia arriba en vez de taparlo.
 Window.softinput_mode = 'below_target'
@@ -1369,6 +1370,9 @@ class DashboardScreen(Screen):
         self._aviso_titulo = None
         self._aviso_nota = None
         self._aviso_nota_base = ""
+        self._aviso_barra = None
+        self._permiso_pendiente = False
+        self._actualizando = False
         Clock.schedule_interval(self._actualizar_estado_sync, 2)
         Clock.schedule_once(lambda dt: self._consultar_actualizacion(), 5)
 
@@ -1396,7 +1400,7 @@ class DashboardScreen(Screen):
         version = str(info.get('version') or '')
         nota = str(info.get('nota') or NOTA_APP)
 
-        tarjeta = RoundedCard(size_hint_y=None, height='104dp',
+        tarjeta = RoundedCard(size_hint_y=None, height='126dp',
                               bg_color=[1, 1, 1, 1])
         tarjeta.padding = [10, 6]
         tarjeta.spacing = 4
@@ -1419,6 +1423,9 @@ class DashboardScreen(Screen):
         self._aviso_nota = texto_nota
         self._aviso_nota_base = nota
 
+        barra = BarraAvance(size_hint_y=None, height='8dp')
+        self._aviso_barra = barra
+
         fila_acciones = BoxLayout(size_hint_y=None, height='34dp', spacing=8)
         btn_actualizar = Button(text="Actualizar ahora", font_size='12sp', bold=True,
                                 background_color=list(PRIMARY), color=[1, 1, 1, 1])
@@ -1432,6 +1439,7 @@ class DashboardScreen(Screen):
 
         tarjeta.add_widget(fila_titulo)
         tarjeta.add_widget(texto_nota)
+        tarjeta.add_widget(barra)
         tarjeta.add_widget(fila_acciones)
         caja.add_widget(tarjeta)
 
@@ -1444,17 +1452,24 @@ class DashboardScreen(Screen):
         self._aviso_info = None
 
     def _actualizar_ahora(self, *args):
-        if self._aviso_info is None:
+        if self._aviso_info is None or self._actualizando:
             return
-        self._aviso_titulo.text = "Descargando la actualización…"
-        info = dict(self._aviso_info)
+        self._actualizando = True
+        self._aviso_titulo.text = "Preparando la actualización…"
+        self._poner_avance(0.0)
 
         def avance(recibido, total):
             if total > 0:
                 pct = int(recibido * 100 / total)
+                if pct == avance.ultimo:
+                    return
+                avance.ultimo = pct
+                fraccion = float(recibido) / float(total)
                 Clock.schedule_once(
-                    lambda dt: setattr(self._aviso_titulo, 'text',
-                                       "Descargando… %d%%" % pct), 0)
+                    lambda dt: self._mostrar_avance(
+                        "Descargando… %d%%" % pct, fraccion), 0)
+
+        avance.ultimo = -1
 
         def _trabajo():
             codigo, detalle = actualizador.actualizar(on_avance=avance)
@@ -1462,7 +1477,37 @@ class DashboardScreen(Screen):
 
         threading.Thread(target=_trabajo, daemon=True).start()
 
+    def _mostrar_avance(self, titulo, fraccion):
+        if self._aviso_titulo is not None:
+            self._aviso_titulo.text = titulo
+        self._poner_avance(fraccion)
+
+    def _poner_avance(self, fraccion):
+        if self._aviso_barra is None:
+            return
+        try:
+            valor = float(fraccion)
+        except Exception:
+            valor = 0.0
+        self._aviso_barra.avance = max(0.0, min(1.0, valor))
+
+    def seguir_si_permiso(self, *args):
+        """Volvio de los ajustes de permiso: sigue la actualizacion sola."""
+        if not self._permiso_pendiente:
+            return
+        self._permiso_pendiente = False
+        if self._aviso_info is None:
+            return
+        if not actualizador.permiso_instalacion():
+            self._decir_nota("Todavía no se autorizó la instalación: andá a "
+                             "Ajustes → Apps → InDrive → Instalar apps "
+                             "desconocidas y volvé.")
+            return
+        self._decir_nota(self._aviso_nota_base)
+        self._actualizar_ahora()
+
     def _fin_actualizacion(self, codigo, detalle):
+        self._actualizando = False
         if self._aviso_titulo is None:
             return
         mensajes = {
@@ -1477,10 +1522,12 @@ class DashboardScreen(Screen):
             'al-dia': "Ya tienes la última versión.",
         }
         self._aviso_titulo.text = mensajes.get(codigo, codigo)
+        self._poner_avance(1.0 if codigo in ('instalando', 'navegador') else 0.0)
 
         if codigo == 'permiso-instalar':
-            self._decir_nota("Android pide autorizar esta app. Aceptá y tocá "
-                             "«Actualizar ahora» otra vez.")
+            self._decir_nota("Android pide autorizar esta app una sola vez. "
+                             "Aceptá y volvé: seguimos solos.")
+            self._permiso_pendiente = True
             actualizador.pedir_permiso_instalacion()
             return
         if codigo in ('instalando', 'al-dia'):
@@ -3480,6 +3527,16 @@ class InDriveApp(App):
                         sm.current = 'dashboard'
                 else:
                     sm.current = 'dashboard'
+
+    def on_resume(self):
+        # Volvio de los ajustes de permiso (o de otra app): si estabamos
+        # esperando que autorice la instalacion, seguimos solos la actualizacion.
+        super().on_resume()
+        try:
+            pantalla = self.root.get_screen('dashboard')
+        except Exception:
+            return
+        Clock.schedule_once(lambda dt: pantalla.seguir_si_permiso(), 1.0)
 
     def on_pause(self):
         # El telefono se va a segundo plano: sube lo pendiente ya.

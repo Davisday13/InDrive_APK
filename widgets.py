@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 
 from kivy.clock import Clock
 from kivy.metrics import dp
-from kivy.properties import BooleanProperty, NumericProperty, ObjectProperty, StringProperty
+from kivy.properties import (BooleanProperty, ListProperty, NumericProperty,
+                             ObjectProperty, StringProperty)
 from kivy.graphics import Color, Line, RoundedRectangle
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -18,6 +19,7 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.textinput import TextInput
+from kivy.uix.widget import Widget
 
 MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
          "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -465,3 +467,42 @@ def mostrar_selector_fecha(campo, al_elegir=None):
     pintar()
     popup.open()
     return popup
+
+
+# ------------------------------------------------------------- progreso ----
+
+class BarraAvance(Widget):
+    """Barra de progreso fina para la actualizacion de la app.
+
+    La `ProgressBar` de Kivy usa las texturas del tema por defecto y no
+    combina con la tarjeta del aviso; esta se dibuja sola y sigue a
+    `avance` (0..1).
+    """
+
+    avance = NumericProperty(0.0)
+    color_base = ListProperty([0.90, 0.91, 0.93, 1])
+    color_relleno = ListProperty([0.07, 0.65, 0.60, 1])
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas:
+            self._fondo = Color(1, 1, 1, 1)
+            self._pista = RoundedRectangle(radius=[dp(3)] * 4)
+            self._relleno = Color(1, 1, 1, 1)
+            self._barra = RoundedRectangle(radius=[dp(3)] * 4)
+        self.bind(pos=self._repintar, size=self._repintar,
+                  avance=self._repintar)
+        self._repintar()
+
+    def _repintar(self, *args):
+        self._fondo.rgba = list(self.color_base)
+        self._pista.pos = self.pos
+        self._pista.size = self.size
+        try:
+            fraccion = float(self.avance)
+        except Exception:
+            fraccion = 0.0
+        fraccion = max(0.0, min(1.0, fraccion))
+        self._relleno.rgba = list(self.color_relleno)
+        self._barra.pos = self.pos
+        self._barra.size = (fraccion * self.width, self.height)

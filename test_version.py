@@ -274,6 +274,28 @@ def main():
         chk(codigo == "navegador", "descarga fallida devolvio %r" % (codigo,))
         chk("URLError" in detalle and "prueba" in detalle,
             "el motivo de la descarga rota no se devolvio: %r" % (detalle,))
+        chk(isinstance(actualizador.REINTENTOS, int) and
+            actualizador.REINTENTOS > 1,
+            "REINTENTOS raro: %r" % (actualizador.REINTENTOS,))
+
+        # descarga intermitente: reintenta y termina bajando
+        actualizador._pedir = guardado[5]
+        intentos_descarga = []
+
+        def _descarga_flaca(*args, **kwargs):
+            intentos_descarga.append(1)
+            if len(intentos_descarga) < 3:
+                actualizador.ultimo_error = "URLError: red inestable"
+                return None
+            return destino
+
+        actualizador.descargar = _descarga_flaca
+        actualizador.instalar = _instalar_roto
+        codigo, detalle = actualizador.actualizar()
+        chk(len(intentos_descarga) == 3,
+            "la descarga fallo %d veces y debia reintentar" % len(intentos_descarga))
+        chk(codigo == "navegador",
+            "con la descarga reintentada salio %r" % (codigo,))
 
         # descarga bien pero instalar falla -> navegador con el motivo
         actualizador._pedir = guardado[5]

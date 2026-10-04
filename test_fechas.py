@@ -225,6 +225,20 @@ def main():
     # antes de que Kivy refresque la AliasProperty `right`).
     revisar_boton_en_layout(apuntar)
 
+    # la barra de progreso de la actualizacion debe recortar avance a 0..1
+    barra = widgets.BarraAvance()
+    barra.size = (200, 8)
+    barra.avance = 2.5
+    apuntar(abs(barra._barra.size[0] - 200) < 0.5,
+            "la barra no recorta avance>1: ancho %.2f" % barra._barra.size[0])
+    barra.avance = -1
+    apuntar(barra._barra.size[0] == 0,
+            "la barra no recorta avance<0: ancho %.2f" % barra._barra.size[0])
+    barra.avance = 0.5
+    apuntar(abs(barra._barra.size[0] - 100) < 0.5,
+            "la barra al 50%% deberia medir 100 y mide %.2f"
+            % barra._barra.size[0])
+
     print("FALLOS: %d" % len(FALLOS))
     for f in FALLOS:
         print("  - " + f)

@@ -25,6 +25,7 @@ SUPABASE_URL = "https://lbhsbbwtmljzqoyrkcxj.supabase.co"
 BUCKET = "apk"
 URL_MANIFIESTO = SUPABASE_URL + "/storage/v1/object/public/" + BUCKET + "/latest.json"
 CABECERA = "InDrive/" + str(VERSION)
+REINTENTOS = 3
 
 
 def _contexto():
@@ -342,9 +343,14 @@ def actualizar(on_avance=None):
 
     ruta = os.path.join(directorio_apk(),
                         "InDrive-%s.apk" % (info.get("version") or "nueva"))
-    baja = descargar(url, ruta, on_avance=on_avance)
-    if baja is None:
+    baja = None
+    motivo = ""
+    for _intento in range(max(1, int(REINTENTOS))):
+        baja = descargar(url, ruta, on_avance=on_avance)
+        if baja is not None:
+            break
         motivo = ultimo_error
+    if baja is None:
         # Bajada rota: el navegador es el respaldo, no el error final.
         if abrir_url(url):
             return "navegador", motivo
