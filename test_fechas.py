@@ -42,6 +42,72 @@ def _boton(raiz, texto):
     return None
 
 
+class _Toque(object):
+    """Toque minimo para on_touch_down: solo hace falta pos y x/y."""
+
+    profile = []
+
+    def __init__(self, x, y):
+        self.pos = (x, y)
+        self.x = x
+        self.y = y
+        self.ud = {}
+        self.grab_current = None
+        self.grab_list = []
+
+
+def revisar_boton_en_layout(apuntar):
+    from kivy.clock import Clock
+    from kivy.core.window import Window
+    from kivy.metrics import dp
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.gridlayout import GridLayout
+    from kivy.uix.label import Label
+
+    cont = BoxLayout(size_hint_y=None, height='240dp', padding=[8, 8], spacing=8)
+    rejilla = GridLayout(cols=2, spacing=6)
+    campo = DateInput(text="02/10/2026", size_hint_y=None, height='28dp')
+    rejilla.add_widget(Label(text="Fecha:", size_hint_y=None, height='28dp'))
+    rejilla.add_widget(campo)
+    rejilla.add_widget(Label(text="Monto:", size_hint_y=None, height='28dp'))
+    rejilla.add_widget(DateInput(size_hint_y=None, height='28dp'))
+    cont.add_widget(rejilla)
+
+    Window.add_widget(cont)
+    cont.pos = (0, 0)
+    cont.width = Window.width
+    try:
+        for _ in range(40):
+            Clock.tick()
+
+        ancho = campo._ancho_zona()
+        esperado = campo.x + campo.width - ancho - dp(3)
+        pintado = campo._fondo_zona.pos[0]
+        if abs(pintado - esperado) > 1:
+            apuntar(False, "el boton de fecha se pinta en %.1f y deberia estar en %.1f"
+                    % (pintado, esperado))
+
+        cx = pintado + campo._fondo_zona.size[0] / 2.0
+        cy = campo._fondo_zona.pos[1] + campo._fondo_zona.size[1] / 2.0
+        abiertos = []
+        original = widgets.mostrar_selector_fecha
+        widgets.mostrar_selector_fecha = lambda *a, **k: abiertos.append(a[0])
+        try:
+            try:
+                tocado = campo.on_touch_down(_Toque(cx, cy))
+            except Exception as exc:
+                tocado = False
+                apuntar(False, "tocar el boton de fecha exploto: %r" % (exc,))
+            if not tocado:
+                apuntar(False, "tocar el boton de fecha no devolvio True")
+            if not abiertos:
+                apuntar(False, "tocar el boton de fecha no abrio el calendario")
+        finally:
+            widgets.mostrar_selector_fecha = original
+    finally:
+        Window.remove_widget(cont)
+
+
 def main():
     d = DateInput()
     chk(d.text == "", "vacio inicial")
@@ -153,6 +219,11 @@ def main():
         if campo2.text != datetime.datetime.now().strftime("15/%m/%Y"):
             apuntar("al elegir no relleno el campo: %r" % campo2.text)
     popup2.dismiss()
+
+    # el boton del calendario debe pintarse en la posicion real del campo,
+    # aunque el layout cambie el ancho (GridLayout manda un evento de size
+    # antes de que Kivy refresque la AliasProperty `right`).
+    revisar_boton_en_layout(apuntar)
 
     print("FALLOS: %d" % len(FALLOS))
     for f in FALLOS:

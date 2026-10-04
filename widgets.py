@@ -342,7 +342,7 @@ class DateInput(CampoSugerencias):
     def _dibujar(self, *args):
         ancho = self._ancho_zona()
         alto = max(self.height - dp(6), dp(8))
-        origen = (self.right - ancho - dp(3), self.y + dp(3))
+        origen = (self.x + self.width - ancho - dp(3), self.y + dp(3))
         self._fondo_zona.size = (ancho, alto)
         self._fondo_zona.pos = origen
         cx = origen[0] + ancho / 2.0
@@ -359,7 +359,7 @@ class DateInput(CampoSugerencias):
 
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
-            if (self.right - touch.x) <= self._ancho_zona() and touch.x >= self.x:
+            if (self.x + self.width - touch.x) <= self._ancho_zona() and touch.x >= self.x:
                 self.focus = True
                 mostrar_selector_fecha(self)
                 return True
