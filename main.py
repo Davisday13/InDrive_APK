@@ -1366,6 +1366,9 @@ class DashboardScreen(Screen):
         self._sync_ok = False
         self._aviso_info = None
         self._aviso_consultado = False
+        self._aviso_titulo = None
+        self._aviso_nota = None
+        self._aviso_nota_base = ""
         Clock.schedule_interval(self._actualizar_estado_sync, 2)
         Clock.schedule_once(lambda dt: self._consultar_actualizacion(), 5)
 
@@ -1413,6 +1416,8 @@ class DashboardScreen(Screen):
         texto_nota = Label(text=nota, font_size='10sp', color=list(TEXT_SECONDARY),
                            halign='left', valign='top', size_hint_y=None, height='34dp')
         texto_nota.bind(size=lambda i, v: setattr(i, 'text_size', v))
+        self._aviso_nota = texto_nota
+        self._aviso_nota_base = nota
 
         fila_acciones = BoxLayout(size_hint_y=None, height='34dp', spacing=8)
         btn_actualizar = Button(text="Actualizar ahora", font_size='12sp', bold=True,
@@ -1458,18 +1463,36 @@ class DashboardScreen(Screen):
         threading.Thread(target=_trabajo, daemon=True).start()
 
     def _fin_actualizacion(self, codigo, detalle):
-        if not hasattr(self, '_aviso_titulo'):
+        if self._aviso_titulo is None:
             return
         mensajes = {
             'sin-conexion': "No se pudo consultar la versión nueva. Revisa la conexión.",
             'sin-version': "No se pudo consultar la versión nueva.",
+            'permiso-instalar': "Falta permitir instalar apps de esta fuente.",
             'descarga-fallo': "No se pudo descargar el APK.",
             'descarga-invalida': "El archivo descargado no coincide con el publicado.",
             'instalando': "Abriendo el instalador de Android…",
+            'instalo-fallo': "No se pudo instalar el APK descargado.",
             'navegador': "Se abrió el navegador para descargar la actualización.",
             'al-dia': "Ya tienes la última versión.",
         }
         self._aviso_titulo.text = mensajes.get(codigo, codigo)
+
+        if codigo == 'permiso-instalar':
+            self._decir_nota("Android pide autorizar esta app. Aceptá y tocá "
+                             "«Actualizar ahora» otra vez.")
+            actualizador.pedir_permiso_instalacion()
+            return
+        if codigo in ('instalando', 'al-dia'):
+            self._decir_nota(self._aviso_nota_base)
+            return
+        self._decir_nota(detalle or self._aviso_nota_base)
+
+    def _decir_nota(self, texto):
+        """Muestra un mensaje corto en la linea de nota del aviso."""
+        if self._aviso_nota is None or not texto:
+            return
+        self._aviso_nota.text = str(texto)[:150]
 
     def _actualizar_estado_sync(self, *args):
         try:

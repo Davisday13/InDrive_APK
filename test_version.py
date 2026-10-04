@@ -9,6 +9,7 @@ import hashlib
 import os
 import sys
 import tempfile
+import urllib.error
 
 import actualizador
 from version import NOTA, VERSION, VERSION_CODE
@@ -130,6 +131,170 @@ def main():
     chk(not actualizador.abrir_url("https://example.com/a.apk"),
         "abrir_url() devolvio True fuera de Android")
     chk(not actualizador.es_android(), "es_android() True en escritorio")
+
+    # --- jnius falso: permiso de instalacion y respaldo del navegador ---
+    intentos = []
+    abiertos = []
+
+    class _Intent(object):
+        ACTION_VIEW = "android.intent.action.VIEW"
+        FLAG_ACTIVITY_NEW_TASK = 0x10000000
+
+        def __init__(self, *args):
+            self.args = args
+            self.action = None
+            self.data = None
+            self.mimo = None
+            self.flags = 0
+            intentos.append(self)
+
+        def setAction(self, accion):
+            self.action = accion
+
+        def setData(self, dato):
+            self.data = dato
+
+        def setDataAndType(self, dato, mimo):
+            self.data, self.mimo = dato, mimo
+
+        def addFlags(self, banderas):
+            self.flags |= int(banderas)
+
+    class _Uri(object):
+        @staticmethod
+        def parse(texto):
+            return "uri:" + texto
+
+    class _PackageManager(object):
+        def __init__(self, permite):
+            self.permite = permite
+
+        def canRequestPackageInstalls(self):
+            if self.permite is None:
+                raise RuntimeError("API vieja")
+            return self.permite
+
+    class _Actividad(object):
+        def __init__(self, permite):
+            self.permite = permite
+
+        def getPackageManager(self):
+            return _PackageManager(self.permite)
+
+        def getPackageName(self):
+            return "org.indrive.indrive_finanzas"
+
+        def startActivity(self, intento):
+            abiertos.append(intento)
+
+        def getContentResolver(self):
+            return object()
+
+    class _PythonActivity(object):
+        pass
+
+    class _Settings(object):
+        ACTION_MANAGE_UNKNOWN_APP_SOURCES = "android.settings.MANAGE_UNKNOWN_APP_SOURCES"
+        ACTION_SECURITY_SETTINGS = "android.settings.SECURITY_SETTINGS"
+
+        class System(object):
+            INSTALL_NON_MARKET_APPS = "install_non_market_apps"
+
+            @staticmethod
+            def getInt(receptor, nombre, por_defecto=0):
+                return 0
+
+    def _falso_autoclass(permite):
+        actividad = _Actividad(permite)
+        pa = _PythonActivity()
+        pa.mActivity = actividad
+
+        def buscar(nombre):
+            if nombre == "org.kivy.android.PythonActivity":
+                return pa
+            if nombre == "android.content.Intent":
+                return _Intent
+            if nombre == "android.net.Uri":
+                return _Uri
+            if nombre == "android.provider.Settings":
+                return _Settings
+            raise KeyError(nombre)
+
+        return buscar
+
+    def _pedir_roto(*args, **kwargs):
+        raise urllib.error.URLError("prueba: sin red")
+
+    def _instalar_roto(ruta):
+        actualizador.ultimo_error = "SecurityException: prueba de instalacion"
+        return False
+
+    manifiesto = {"version": "9.9.9", "version_code": VERSION_CODE + 888,
+                  "apk": "InDrive-Finanzas-9.9.9.apk", "sha256": None}
+
+    guardado = (actualizador._autoclass, actualizador.consultar,
+                actualizador.descargar, actualizador.instalar,
+                actualizador.abrir_url, actualizador._pedir)
+    try:
+        # sin permiso hay que abrir los ajustes y NO bajar nada
+        bajadas = []
+        actualizador._autoclass = lambda: _falso_autoclass(False)
+        chk(not actualizador.permiso_instalacion(),
+            "permiso_instalacion() dio True con canRequestPackageInstalls()==False")
+        chk(actualizador.pedir_permiso_instalacion(), "no abrio los ajustes de permiso")
+        chk(len(abiertos) == 1, "no lanzo la pantalla de permisos: %r" % (abiertos,))
+        chk("unknown" in str(abiertos[-1].args[0]).lower(),
+            "abrio una pantalla que no es de apps desconocidas: %r"
+            % (abiertos[-1].args,))
+
+        actualizador.consultar = lambda timeout=15: manifiesto
+        actualizador.descargar = lambda *a, **k: bajadas.append(1)
+        codigo, _ = actualizador.actualizar()
+        chk(codigo == "permiso-instalar",
+            "actualizar() sin permiso devolvio %r" % (codigo,))
+        chk(not bajadas, "descargo el APK antes de pedir el permiso")
+
+        # con permiso no hay que abrir nada raro
+        actualizador._autoclass = lambda: _falso_autoclass(True)
+        chk(actualizador.permiso_instalacion(),
+            "permiso_instalacion() dio False con permiso concedido")
+
+        # el navegador: la url sin tipo MIME (con MIME no acepta ninguna actividad)
+        intentos[:] = []
+        chk(actualizador.abrir_url("https://x/y.apk"), "abrir_url() fallo")
+        chk(intentos and intentos[-1].data is not None,
+            "abrir_url no paso la url al Intent")
+        chk(intentos[-1].mimo is None,
+            "abrir_url mando tipo MIME %r" % (intentos[-1].mimo,))
+
+        # descarga rota -> respaldo en el navegador, con el motivo visible
+        actualizador._pedir = _pedir_roto
+        actualizador.descargar = guardado[2]
+        codigo, detalle = actualizador.actualizar()
+        chk(codigo == "navegador", "descarga fallida devolvio %r" % (codigo,))
+        chk("URLError" in detalle and "prueba" in detalle,
+            "el motivo de la descarga rota no se devolvio: %r" % (detalle,))
+
+        # descarga bien pero instalar falla -> navegador con el motivo
+        actualizador._pedir = guardado[5]
+        actualizador.descargar = lambda *a, **k: destino
+        actualizador.instalar = _instalar_roto
+        codigo, detalle = actualizador.actualizar()
+        chk(codigo == "navegador", "instalacion fallida devolvio %r" % (codigo,))
+        chk("SecurityException" in detalle,
+            "el motivo de la instalacion fallida no se devolvio: %r" % (detalle,))
+
+        # ni instalador ni navegador -> codigo propio, no el generico
+        actualizador.abrir_url = lambda url: False
+        codigo, detalle = actualizador.actualizar()
+        chk(codigo == "instalo-fallo",
+            "sin instalador ni navegador devolvio %r" % (codigo,))
+        chk("SecurityException" in detalle,
+            "el motivo de instalo-fallo no se devolvio: %r" % (detalle,))
+    finally:
+        (actualizador._autoclass, actualizador.consultar,
+         actualizador.descargar, actualizador.instalar,
+         actualizador.abrir_url, actualizador._pedir) = guardado
 
     for f in (origen, destino, destino + ".parcial"):
         try:

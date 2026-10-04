@@ -35,6 +35,19 @@ def _contexto():
         return None
 
 
+ultimo_error = ""
+
+
+def _anotar(exc):
+    """Guarda el ultimo motivo de fallo para poder mostrarlo en el aviso."""
+    global ultimo_error
+    try:
+        texto = str(exc)
+    except Exception:
+        texto = repr(exc)
+    ultimo_error = ("%s: %s" % (type(exc).__name__, texto))[:140]
+
+
 def _pedir(url, timeout):
     peticion = urllib.request.Request(url, headers={"User-Agent": CABECERA})
     return urllib.request.urlopen(peticion, timeout=timeout, context=_contexto())
@@ -46,7 +59,8 @@ def consultar(timeout=15):
         with _pedir(URL_MANIFIESTO, timeout) as respuesta:
             crudo = respuesta.read()
         info = json.loads(crudo.decode("utf-8"))
-    except Exception:
+    except Exception as exc:
+        _anotar(exc)
         return None
     if not isinstance(info, dict):
         return None
@@ -107,6 +121,7 @@ def descargar(url, ruta, on_avance=None, timeout=300):
     Devuelve la ruta si todo salio bien y None si fallo.
     """
     if not url:
+        _anotar(ValueError("sin url del APK"))
         return None
     parcial = ruta + ".parcial"
     _borrar(parcial)
@@ -130,15 +145,18 @@ def descargar(url, ruta, on_avance=None, timeout=300):
                             on_avance(recibido, total)
                         except Exception:
                             pass
-    except Exception:
+    except Exception as exc:
+        _anotar(exc)
         _borrar(parcial)
         return None
     if recibido <= 0:
+        _anotar(ValueError("respuesta vacia del servidor"))
         _borrar(parcial)
         return None
     try:
         os.replace(parcial, ruta)
-    except Exception:
+    except Exception as exc:
+        _anotar(exc)
         _borrar(parcial)
         return None
     return ruta
@@ -154,6 +172,53 @@ def _autoclass():
 
 def es_android():
     return _autoclass() is not None
+
+
+def permiso_instalacion():
+    """True si Android ya dejo que esta app instale APK.
+
+    Sin eso PackageInstaller.createSession() lanza SecurityException y la
+    actualizacion muere. Si no se puede comprobar, seguimos adelante y
+    dejamos que el propio sistema decida.
+    """
+    autoclass = _autoclass()
+    if autoclass is None:
+        return True
+    try:
+        actividad = autoclass("org.kivy.android.PythonActivity").mActivity
+        try:
+            return bool(actividad.getPackageManager().canRequestPackageInstalls())
+        except Exception:
+            pass
+        Settings = autoclass("android.provider.Settings")
+        valor = Settings.System.getInt(actividad.getContentResolver(),
+                                       Settings.System.INSTALL_NON_MARKET_APPS, 0)
+        return int(valor) == 1
+    except Exception:
+        return True
+
+
+def pedir_permiso_instalacion():
+    """Abre la pantalla de Android para permitir instalar apps de esta fuente."""
+    autoclass = _autoclass()
+    if autoclass is None:
+        return False
+    try:
+        actividad = autoclass("org.kivy.android.PythonActivity").mActivity
+        Settings = autoclass("android.provider.Settings")
+        Uri = autoclass("android.net.Uri")
+        Intent = autoclass("android.content.Intent")
+        try:
+            intento = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                             Uri.parse("package:" + actividad.getPackageName()))
+        except Exception:
+            intento = Intent(Settings.ACTION_SECURITY_SETTINGS)
+        intento.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        actividad.startActivity(intento)
+        return True
+    except Exception as exc:
+        _anotar(exc)
+        return False
 
 
 def directorio_apk():
@@ -218,14 +283,22 @@ def instalar(ruta_apk):
         remitente = PendingIntent.getBroadcast(actividad, 0, intento, banderas)
         sesion.commit(remitente.getIntentSender())
         return True
-    except Exception:
+    except Exception as exc:
+        _anotar(exc)
         return False
 
 
 def abrir_url(url):
-    """Abre una URL en el navegador (camino de respaldo)."""
+    """Abre una URL en el navegador (camino de respaldo).
+
+    Va sin tipo MIME: con "application/vnd.android.package-archive" no hay
+    ninguna actividad que la acepte y startActivity lanza ActivityNotFoundException.
+    Con la URL a secas el navegador la descarga y el usuario instala desde Descargas.
+    """
     autoclass = _autoclass()
     if autoclass is None or not url:
+        if not url:
+            _anotar(ValueError("sin url para abrir"))
         return False
     try:
         PythonActivity = autoclass("org.kivy.android.PythonActivity")
@@ -233,35 +306,49 @@ def abrir_url(url):
         Intent = autoclass("android.content.Intent")
         Uri = autoclass("android.net.Uri")
         intento = Intent(Intent.ACTION_VIEW)
-        intento.setDataAndType(Uri.parse(url), "application/vnd.android.package-archive")
+        intento.setData(Uri.parse(url))
         intento.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         actividad.startActivity(intento)
         return True
-    except Exception:
+    except Exception as exc:
+        _anotar(exc)
         return False
 
 
 def actualizar(on_avance=None):
     """De un toque: consulta, descarga e instala. Devuelve (codigo, detalle).
 
-    codigos: 'sin-version' | 'al-dia' | 'sin-conexion' | 'descarga-fallo'
-             | 'descarga-invalida' | 'instalando' | 'navegador'
+    codigos: 'sin-version' | 'al-dia' | 'sin-conexion' | 'permiso-instalar'
+             | 'descarga-fallo' | 'descarga-invalida' | 'instalando'
+             | 'instalo-fallo' | 'navegador'
     """
+    global ultimo_error
+    ultimo_error = ""
     info = consultar()
     if info is None:
-        return "sin-conexion", ""
+        return "sin-conexion", ultimo_error
     if not hay_actualizacion(info):
         return "al-dia", str(info.get("version") or "")
 
+    # Antes de bajar 20 MB: si Android no dejo instalar, abrimos los ajustes
+    # y el usuario repite el toque.
+    if es_android() and not permiso_instalacion():
+        return "permiso-instalar", ""
+
     url = url_apk(info)
     if not url:
-        return "descarga-fallo", ""
+        _anotar(ValueError("el manifiesto no trae url del APK"))
+        return "descarga-fallo", ultimo_error
 
     ruta = os.path.join(directorio_apk(),
                         "InDrive-%s.apk" % (info.get("version") or "nueva"))
     baja = descargar(url, ruta, on_avance=on_avance)
     if baja is None:
-        return "descarga-fallo", ""
+        motivo = ultimo_error
+        # Bajada rota: el navegador es el respaldo, no el error final.
+        if abrir_url(url):
+            return "navegador", motivo
+        return "descarga-fallo", motivo
 
     if not _verificar(baja, info.get("sha256")):
         _borrar(baja)
@@ -270,6 +357,7 @@ def actualizar(on_avance=None):
     if instalar(baja):
         return "instalando", str(info.get("version") or "")
 
+    motivo = ultimo_error
     if abrir_url(url):
-        return "navegador", str(info.get("version") or "")
-    return "descarga-fallo", ""
+        return "navegador", motivo
+    return "instalo-fallo", motivo
