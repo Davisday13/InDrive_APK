@@ -1112,6 +1112,68 @@ ScreenManager:
                         color: 0.07, 0.65, 0.60, 1
 
             RoundedCard:
+                id: monthly_profits_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 12]
+                spacing: 4
+
+                Label:
+                    text: "Ganancia por Mes"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '24dp'
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '16dp'
+                    spacing: 8
+                    padding: [10, 0, 10, 0]
+                    Label:
+                        text: "Mes"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        size_hint_x: 0.40
+                        text_size: self.size
+                    Label:
+                        text: "Ganancia"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'right'
+                        valign: 'middle'
+                        size_hint_x: 0.32
+                        text_size: self.size
+                    Label:
+                        text: "vs mes anterior"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'right'
+                        valign: 'middle'
+                        size_hint_x: 0.28
+                        text_size: self.size
+
+                BoxLayout:
+                    id: list_monthly_profits
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: 6
+
+                Label:
+                    id: lbl_monthly_empty
+                    text: ""
+                    font_size: '11sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '18dp'
+
+            RoundedCard:
                 size_hint_y: None
                 height: '240dp'
                 bg_color: [1, 1, 1, 1]
@@ -2059,6 +2121,75 @@ class CarroScreen(Screen):
         editar_registro("Editar movimiento del carro", campos, guardar, valores)
 
 
+MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+                'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+
+def _mes_previo_clave(clave):
+    """'2025-12' -> '2025-11' y '2025-01' -> '2024-12'. None si no se puede."""
+    try:
+        anio = int(clave[:4])
+        mes = int(clave[5:7])
+        if not 1 <= mes <= 12:
+            return None
+    except Exception:
+        return None
+    mes -= 1
+    if mes == 0:
+        mes, anio = 12, anio - 1
+    return "%04d-%02d" % (anio, mes)
+
+
+def _etiqueta_mes(clave):
+    """'2025-09' -> 'Sep 2025'."""
+    try:
+        anio = int(clave[:4])
+        mes = int(clave[5:7])
+        if not 1 <= mes <= 12:
+            return str(clave)
+        return "%s %d" % (MESES_CORTOS[mes - 1], anio)
+    except Exception:
+        return str(clave)
+
+
+# Neto mensual de la cuenta Ahorro InDrive: ingresos menos comision (solo en
+# Viaje InDrive) menos los gastos, que ya incluyen gasolina y el aporte al
+# carro que graba la pantalla de sesion. El limite es del mas reciente
+# hacia atras, asi que el resultado viene en orden descendente.
+SQL_GANANCIA_MES = """
+    SELECT strftime('%Y-%m', fecha) as mes,
+           SUM(CASE WHEN tipo = 'Ingreso' AND categoria = 'Viaje InDrive'
+                    THEN monto - COALESCE(comision, 0)
+                    WHEN tipo = 'Ingreso' THEN monto
+                    ELSE -monto END) as ganancia
+    FROM transacciones
+    WHERE cuenta = 'Ahorro InDrive'
+    GROUP BY mes
+    ORDER BY mes DESC
+    LIMIT 12
+"""
+
+
+def _calcular_ganancias_mensuales(mensuales):
+    """Filas (etiqueta, ganancia, variacion) a partir de SQL_GANANCIA_MES.
+
+    La variacion es el % respecto al mes calendario inmediatamente anterior.
+    Si falta un mes en la serie o el mes base es ~0 el % mentiria, y ahi
+    devuelve None para que la fila muestre "—".
+    """
+    salida = []
+    for i, (clave, ganancia) in enumerate(mensuales):
+        valor = float(ganancia or 0.0)
+        variacion = None
+        previo = mensuales[i + 1] if i + 1 < len(mensuales) else None
+        if previo is not None and _mes_previo_clave(clave) == previo[0]:
+            base = float(previo[1] or 0.0)
+            if abs(base) > 0.005:
+                variacion = (valor - base) / abs(base) * 100.0
+        salida.append((_etiqueta_mes(clave), valor, variacion))
+    return salida
+
+
 class StatsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -2069,6 +2200,14 @@ class StatsScreen(Screen):
 
     def on_enter(self, *args):
         Clock.schedule_once(self.draw_chart, 0.1)
+
+    def _volver_atras(self, *args):
+        # El KV del botón "< Volver" llama a este metodo y no existia:
+        # el boton estallaba con AttributeError.
+        try:
+            self.manager.current = 'dashboard'
+        except Exception:
+            pass
 
     def draw_chart(self, *args):
         holder = self.ids.chart_canvas
@@ -2110,6 +2249,16 @@ class StatsScreen(Screen):
         """)
         for row in cur.fetchall():
             daily.add_widget(DailyProfitItem(*row))
+
+        # --- ganancia por mes: los ultimos 12 meses, del mas reciente arriba ---
+        lista_mes = self.ids.list_monthly_profits
+        lista_mes.clear_widgets()
+        cur.execute(SQL_GANANCIA_MES)
+        mensuales = cur.fetchall()
+        for etiqueta, valor, variacion in _calcular_ganancias_mensuales(mensuales):
+            lista_mes.add_widget(MonthlyProfitItem(etiqueta, valor, variacion))
+        self.ids.lbl_monthly_empty.text = ("" if mensuales
+                                           else "Sin movimientos todavía")
         conn.close()
         
         if not rows:
@@ -2117,33 +2266,35 @@ class StatsScreen(Screen):
         
         stats = {}
         for mes, ahorro, carro in rows:
-            try:
-                mes_legible = datetime.strptime(mes, "%Y-%m").strftime("%b")
-            except:
-                mes_legible = mes
-            stats[mes_legible] = {"Ahorro": ahorro or 0, "Carro": carro or 0}
-        
-        meses = list(reversed(list(stats.keys())))
-        
-        if meses:
-            best = max(meses, key=lambda m: stats[m]["Ahorro"])
-            self.ids.lbl_best_month.text = best
-        
+            stats[mes] = {"Ahorro": float(ahorro or 0),
+                          "Carro": float(carro or 0)}
+
+        # `rows` llega en orden descendente: se invierte para leerlo en orden
+        # cronologico. La clave es el ISO '2025-09' y no el nombre corto, que
+        # se repetiria si el rango cruza dos años.
+        claves = list(reversed(list(stats.keys())))
+        etiquetas = [_etiqueta_mes(c).split(" ")[0] for c in claves]
+
+        if claves:
+            mejor = max(claves, key=lambda c: stats[c]["Ahorro"])
+            self.ids.lbl_best_month.text = _etiqueta_mes(mejor)
+
         months_container = self.ids.chart_months
         months_container.clear_widgets()
-        for mes in meses:
-            months_container.add_widget(Label(text=mes, font_size='11sp', bold=True, color=[0.08, 0.08, 0.09, 1], halign='center'))
+        for etiqueta in etiquetas:
+            months_container.add_widget(Label(text=etiqueta, font_size='11sp', bold=True, color=[0.08, 0.08, 0.09, 1], halign='center'))
         
         px, py = 40, 30
         cw, ch = w - 80, h - 60
         ox, oy = px, py
         
         max_val = 1.0
-        for mes in meses:
-            max_val = max(max_val, stats[mes]["Ahorro"], stats[mes]["Carro"])
+        for clave in claves:
+            max_val = max(max_val, abs(stats[clave]["Ahorro"]),
+                          abs(stats[clave]["Carro"]))
         max_val = max_val * 1.1 if max_val > 0 else 1
         
-        n = len(meses)
+        n = len(claves)
         if n == 0:
             return
         group_w = cw / n
@@ -2153,16 +2304,17 @@ class StatsScreen(Screen):
             Color(rgba=[0.8, 0.7, 0.6, 0.3])
             Line(points=[ox, oy, ox + cw, oy], width=1)
             
-            for idx, mes in enumerate(meses):
-                ahorro = stats[mes]["Ahorro"]
-                carro = stats[mes]["Carro"]
+            for idx, clave in enumerate(claves):
+                ahorro = stats[clave]["Ahorro"]
+                carro = stats[clave]["Carro"]
                 gx = ox + (idx * group_w) + (group_w / 2)
                 
-                h_ah = (ahorro / max_val) * ch
+                # Altura >= 0: un negativo deja size negativo y no se pinta.
+                h_ah = max(0.0, ahorro / max_val * ch)
                 Color(rgba=[0.07, 0.65, 0.60, 1])
                 RoundedRectangle(pos=(gx - bar_w - 4, oy), size=(bar_w, h_ah), radius=[2])
                 
-                h_ca = (carro / max_val) * ch
+                h_ca = max(0.0, carro / max_val * ch)
                 Color(rgba=[0.90, 0.30, 0.35, 1] if carro < 0 else [0.07, 0.65, 0.60, 0.5])
                 RoundedRectangle(pos=(gx + 4, oy), size=(bar_w, h_ca), radius=[2])
 
@@ -2380,6 +2532,63 @@ class DailyProfitItem(BoxLayout):
         self.add_widget(left_layout)
         self.add_widget(center_layout)
         self.add_widget(right_layout)
+
+    def _update_rect(self, instance, value):
+        self.k_rect.size = self.size
+        self.k_rect.pos = self.pos
+
+
+class MonthlyProfitItem(BoxLayout):
+    """Una fila de la lista "Ganancia por Mes".
+
+    etiqueta  : mes ya armado, p. ej. "Sep 2025"
+    ganancia  : neto del mes en la cuenta Ahorro InDrive
+    variacion : % respecto al mes calendario anterior, o None si no hay base
+    """
+
+    def __init__(self, etiqueta, ganancia, variacion, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'horizontal'
+        self.size_hint_y = None
+        self.height = '44dp'
+        self.padding = [10, 4]
+        self.spacing = 8
+
+        with self.canvas.before:
+            Color(rgba=[1, 1, 1, 1])
+            self.k_rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[8])
+        self.bind(size=self._update_rect, pos=self._update_rect)
+
+        lbl_mes = Label(text=str(etiqueta), font_size='13sp', bold=True,
+                        color=[0.08, 0.08, 0.09, 1], halign='left',
+                        valign='middle', size_hint_x=0.40)
+        lbl_mes.bind(size=lbl_mes.setter('text_size'))
+
+        valor = float(ganancia or 0.0)
+        signo = "+" if valor >= 0 else ""
+        lbl_ganancia = Label(text="%s$%s" % (signo, format(valor, ",.2f")),
+                             font_size='14sp', bold=True,
+                             color=[0.07, 0.65, 0.60, 1] if valor >= 0
+                                   else [0.90, 0.30, 0.35, 1],
+                             halign='right', valign='middle', size_hint_x=0.32)
+        lbl_ganancia.bind(size=lbl_ganancia.setter('text_size'))
+
+        if variacion is None:
+            texto_var = "—"
+            color_var = [0.3, 0.3, 0.35, 1]
+        else:
+            texto_var = "%s %.1f%%" % ("▲" if variacion >= 0 else "▼",
+                                       abs(float(variacion)))
+            color_var = [0.07, 0.65, 0.60, 1] if variacion >= 0 \
+                else [0.90, 0.30, 0.35, 1]
+        lbl_var = Label(text=texto_var, font_size='12sp', bold=True,
+                        color=color_var, halign='right', valign='middle',
+                        size_hint_x=0.28)
+        lbl_var.bind(size=lbl_var.setter('text_size'))
+
+        self.add_widget(lbl_mes)
+        self.add_widget(lbl_ganancia)
+        self.add_widget(lbl_var)
 
     def _update_rect(self, instance, value):
         self.k_rect.size = self.size

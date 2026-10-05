@@ -4,7 +4,7 @@ package.name = indrive_finanzas
 package.domain = org.indrive
 source.dir = .
 source.include_exts = py,png,jpg,jpeg
-version = 1.1.3
+version = 1.1.4
 
 icon.filename = icon.png
 presplash.filename = presplash.png
@@ -34,7 +34,7 @@ fullscreen = 0
 log_level = 1
 
 # Compresión
-android.numeric_version = 113
+android.numeric_version = 114
 android.gradle_repository = true
 
 # Para reducir el tamaño del APK
