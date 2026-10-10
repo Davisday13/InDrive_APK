@@ -1174,6 +1174,212 @@ ScreenManager:
                     height: '18dp'
 
             RoundedCard:
+                id: accounting_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 12]
+                spacing: 8
+
+                Label:
+                    text: "Control Contable"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '24dp'
+                Label:
+                    text: "Ingresos vs egresos · últimos 12 meses"
+                    font_size: '10sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '14dp'
+
+                GridLayout:
+                    cols: 2
+                    row_default_height: '62dp'
+                    row_force_default: True
+                    spacing: 8
+                    size_hint_y: None
+                    height: self.minimum_height
+                    RoundedCard:
+                        bg_color: [0.96, 0.96, 0.97, 1]
+                        padding: [8, 6]
+                        spacing: 2
+                        Label:
+                            text: "Ingresos"
+                            font_size: '10sp'
+                            color: 0.3, 0.3, 0.35, 1
+                            size_hint_y: None
+                            height: '14dp'
+                        Label:
+                            id: lbl_ingresos_totales
+                            text: "$0.00"
+                            font_size: '15sp'
+                            bold: True
+                            color: 0.07, 0.65, 0.60, 1
+                    RoundedCard:
+                        bg_color: [0.96, 0.96, 0.97, 1]
+                        padding: [8, 6]
+                        spacing: 2
+                        Label:
+                            text: "Egresos"
+                            font_size: '10sp'
+                            color: 0.3, 0.3, 0.35, 1
+                            size_hint_y: None
+                            height: '14dp'
+                        Label:
+                            id: lbl_egresos_totales
+                            text: "$0.00"
+                            font_size: '15sp'
+                            bold: True
+                            color: 0.90, 0.30, 0.35, 1
+                    RoundedCard:
+                        bg_color: [0.96, 0.96, 0.97, 1]
+                        padding: [8, 6]
+                        spacing: 2
+                        Label:
+                            text: "Balance"
+                            font_size: '10sp'
+                            color: 0.3, 0.3, 0.35, 1
+                            size_hint_y: None
+                            height: '14dp'
+                        Label:
+                            id: lbl_balance_total
+                            text: "$0.00"
+                            font_size: '15sp'
+                            bold: True
+                            color: 0.07, 0.65, 0.60, 1
+                    RoundedCard:
+                        bg_color: [0.96, 0.96, 0.97, 1]
+                        padding: [8, 6]
+                        spacing: 2
+                        Label:
+                            text: "Margen"
+                            font_size: '10sp'
+                            color: 0.3, 0.3, 0.35, 1
+                            size_hint_y: None
+                            height: '14dp'
+                        Label:
+                            id: lbl_margen_total
+                            text: "0.0%"
+                            font_size: '15sp'
+                            bold: True
+                            color: 0.07, 0.65, 0.60, 1
+
+                BoxLayout:
+                    size_hint_y: None
+                    height: '48dp'
+                    padding: [4, 4]
+                    canvas.before:
+                        Color:
+                            rgba: root.badge_color
+                        RoundedRectangle:
+                            size: self.size
+                            pos: self.pos
+                            radius: [8]
+                    Label:
+                        id: lbl_factibilidad
+                        text: root.badge_texto
+                        font_size: '11sp'
+                        bold: True
+                        color: 1, 1, 1, 1
+                        halign: 'center'
+                        valign: 'middle'
+                        text_size: self.width - 16, None
+
+                Label:
+                    text: "¿En qué se va el dinero?"
+                    font_size: '12sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '20dp'
+                BoxLayout:
+                    id: list_expense_mix
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: 4
+                Label:
+                    id: lbl_expense_empty
+                    text: ""
+                    font_size: '11sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '16dp'
+
+            RoundedCard:
+                id: accounting_detail_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 12]
+                spacing: 6
+
+                Label:
+                    text: "Ingresos y Egresos por Mes"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '24dp'
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '16dp'
+                    spacing: 4
+                    padding: [6, 0, 6, 0]
+                    Label:
+                        text: "Mes"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        size_hint_x: 0.28
+                        text_size: self.size
+                    Label:
+                        text: "Ingresos"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'right'
+                        valign: 'middle'
+                        size_hint_x: 0.24
+                        text_size: self.size
+                    Label:
+                        text: "Egresos"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'right'
+                        valign: 'middle'
+                        size_hint_x: 0.24
+                        text_size: self.size
+                    Label:
+                        text: "Balance"
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'right'
+                        valign: 'middle'
+                        size_hint_x: 0.24
+                        text_size: self.size
+
+                BoxLayout:
+                    id: list_accounting
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: 4
+
+                Label:
+                    id: lbl_accounting_empty
+                    text: ""
+                    font_size: '11sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '16dp'
+
+            RoundedCard:
                 size_hint_y: None
                 height: '240dp'
                 bg_color: [1, 1, 1, 1]
@@ -2190,7 +2396,163 @@ def _calcular_ganancias_mensuales(mensuales):
     return salida
 
 
+# --- control contable: ingresos y egresos por mes -------------------------
+# Ingreso bruto de la cuenta que mueve el negocio (lo que entra por viajes y
+# otros ingresos) y egreso real (los gastos registrados mas la comision que
+# se queda la app, que nunca se gasta pero tampoco es ganancia).
+# El balance de esta tabla da exactamente lo mismo que SQL_GANANCIA_MES:
+# aca se ve de donde sale, separando cuanto entra de cuanto sale.
+SQL_CONTABLE_MES = """
+    SELECT strftime('%Y-%m', fecha) as mes,
+           SUM(CASE WHEN tipo = 'Ingreso' THEN monto ELSE 0 END) as ingresos,
+           SUM(CASE WHEN tipo = 'Gasto' THEN monto ELSE 0 END)
+             + SUM(CASE WHEN tipo = 'Ingreso'
+                        THEN COALESCE(comision, 0) ELSE 0 END) as egresos
+    FROM transacciones
+    WHERE cuenta = 'Ahorro InDrive'
+    GROUP BY mes
+    ORDER BY mes DESC
+    LIMIT 12
+"""
+
+
+# Egresos desarmados por rubro y mes, para decir "en que se va la plata".
+# Las comisiones de la app van en su propio rubro: no son un gasto del
+# rubro donde se registro el viaje.
+SQL_EGRESOS_RUBRO = """
+    SELECT strftime('%Y-%m', fecha) as mes,
+           CASE WHEN tipo = 'Ingreso' THEN 'Comisiones InDrive'
+                ELSE categoria END as rubro,
+           SUM(CASE WHEN tipo = 'Gasto' THEN monto
+                    ELSE COALESCE(comision, 0) END) as egreso
+    FROM transacciones
+    WHERE cuenta = 'Ahorro InDrive'
+      AND (tipo = 'Gasto' OR COALESCE(comision, 0) > 0)
+    GROUP BY mes, rubro
+"""
+
+
+# El nombre que se ve en pantalla: 'Uso del Carro' es el aporte al fondo del
+# carro y confundirlo con la cuenta homonima daria miedo.
+RUBROS_EGRESO = {
+    'Uso del Carro': 'Aporte al carro',
+    'Viaje InDrive': 'Comisiones InDrive',
+}
+
+
+def _calcular_contable(filas):
+    """Resumen contable a partir de SQL_CONTABLE_MES.
+
+    filas: [(clave_mes, ingresos, egresos)] en orden descendente.
+    Devuelve los totales del periodo y el detalle fila a fila con
+    (etiqueta, ingresos, egresos, balance, margen). El margen es el % del
+    balance sobre los ingresos del periodo; None cuando no hay ingresos,
+    porque ahi el porcentaje no significaria nada.
+    """
+    detalle = []
+    total_ingresos = 0.0
+    total_egresos = 0.0
+    for clave, ingresos, egresos in filas:
+        ing = float(ingresos or 0.0)
+        egr = float(egresos or 0.0)
+        balance = ing - egr
+        margen = (balance / ing * 100.0) if ing > 0.005 else None
+        detalle.append((_etiqueta_mes(clave), ing, egr, balance, margen))
+        total_ingresos += ing
+        total_egresos += egr
+    balance_total = total_ingresos - total_egresos
+    margen_total = ((balance_total / total_ingresos * 100.0)
+                    if total_ingresos > 0.005 else None)
+    return {
+        "filas": detalle,
+        "ingresos": total_ingresos,
+        "egresos": total_egresos,
+        "balance": balance_total,
+        "margen": margen_total,
+    }
+
+
+# Codigo de factibilidad -> color del distintivo. Se separa del texto para
+# poder probar los umbrales sin pintar la pantalla.
+COLORES_FACTIBILIDAD = {
+    "factible": [0.07, 0.65, 0.60, 1],
+    "ajustado": [0.95, 0.60, 0.15, 1],
+    "no_factible": [0.90, 0.30, 0.35, 1],
+    "sin_datos": [0.55, 0.55, 0.60, 1],
+}
+
+# Margen minimo para considerar el negocio factible. Por debajo de esto la
+# ganancia es tan fina que un solo mes malo lo funde.
+MARGEN_MINIMO_FACTIBLE = 20.0
+
+
+def _clasificar_factibilidad(ingresos, balance):
+    """(codigo, texto) del veredicto de factibilidad del periodo.
+
+    El texto explica el margen sobre una base de $100 facturados, que es la
+    forma mas facil de leerlo en el telefono.
+    """
+    ingresos = float(ingresos or 0.0)
+    balance = float(balance or 0.0)
+    if ingresos <= 0.005:
+        if balance < -0.005:
+            return ("no_factible", "NO FACTIBLE · egresos sin ingresos que los cubran")
+        return ("sin_datos", "Sin movimientos todavía")
+    margen = balance / ingresos * 100.0
+    if margen < 0:
+        return ("no_factible",
+                "NO FACTIBLE · por cada $100 ingresados se pierden $%.0f" % abs(margen))
+    if margen < MARGEN_MINIMO_FACTIBLE:
+        return ("ajustado",
+                "AJUSTADO · por cada $100 ingresados quedan $%.0f" % margen)
+    return ("factible",
+            "FACTIBLE · por cada $100 ingresados quedan $%.0f" % margen)
+
+
+def _desglose_egresos(filas, meses, tope=5):
+    """Agrupa SQL_EGRESOS_RUBRO por rubro dentro de `meses`.
+
+    Devuelve ([(rubro, monto, % del total)], total). Si hay mas rubros que
+    `tope`, los que sobran se juntan en "Otros" para que la lista no se
+    desborde de la tarjeta.
+    """
+    acumulado = {}
+    for mes, rubro, egreso in filas:
+        if meses is not None and mes not in meses:
+            continue
+        monto = float(egreso or 0.0)
+        if monto <= 0.0:
+            continue
+        clave = RUBROS_EGRESO.get(rubro, rubro) or "Sin rubro"
+        acumulado[clave] = acumulado.get(clave, 0.0) + monto
+    total = sum(acumulado.values())
+    orden = sorted(acumulado.items(), key=lambda par: par[1], reverse=True)
+    salida = []
+    for rubro, monto in orden[:tope]:
+        salida.append((rubro, monto, (monto / total * 100.0) if total > 0 else 0.0))
+    resto = orden[tope:]
+    if resto:
+        monto = sum(valor for _, valor in resto)
+        salida.append((u"Otros", monto,
+                       (monto / total * 100.0) if total > 0 else 0.0))
+    return salida, total
+
+
+def _margen_color(margen):
+    """Color del % de margen: verde sano, naranja justito, rojo en rojo."""
+    if margen is None:
+        return TEXT_SECONDARY
+    if margen < 0:
+        return NEG
+    if margen < MARGEN_MINIMO_FACTIBLE:
+        return [0.95, 0.60, 0.15, 1]
+    return PRIMARY
+
+
 class StatsScreen(Screen):
+    badge_texto = StringProperty("Sin movimientos todavía")
+    badge_color = ListProperty(COLORES_FACTIBILIDAD["sin_datos"])
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.bind(size=self.trigger_draw)
@@ -2259,6 +2621,47 @@ class StatsScreen(Screen):
             lista_mes.add_widget(MonthlyProfitItem(etiqueta, valor, variacion))
         self.ids.lbl_monthly_empty.text = ("" if mensuales
                                            else "Sin movimientos todavía")
+
+        # --- control contable: ingresos, egresos, margen y factibilidad ---
+        cur.execute(SQL_CONTABLE_MES)
+        filas_contable = cur.fetchall()
+        contable = _calcular_contable(filas_contable)
+
+        self.ids.lbl_ingresos_totales.text = "$" + format(contable["ingresos"], ",.2f")
+        self.ids.lbl_egresos_totales.text = "$" + format(contable["egresos"], ",.2f")
+
+        balance_total = contable["balance"]
+        signo = "+" if balance_total >= 0 else ""
+        self.ids.lbl_balance_total.text = "%s$%s" % (signo, format(balance_total, ",.2f"))
+        self.ids.lbl_balance_total.color = (PRIMARY if balance_total >= 0 else NEG)
+        self.ids.lbl_margen_total.text = ("%0.1f%%" % contable["margen"]
+                                          if contable["margen"] is not None else "—")
+        self.ids.lbl_margen_total.color = _margen_color(contable["margen"])
+
+        codigo, texto = _clasificar_factibilidad(contable["ingresos"],
+                                                 balance_total)
+        self.badge_texto = texto
+        self.badge_color = COLORES_FACTIBILIDAD.get(codigo,
+                                                    COLORES_FACTIBILIDAD["sin_datos"])
+
+        meses_visibles = [fila[0] for fila in filas_contable]
+        cur.execute(SQL_EGRESOS_RUBRO)
+        rubros = _desglose_egresos(cur.fetchall(), meses_visibles)
+        mezcla, _total_egresos = rubros
+        lista_rubros = self.ids.list_expense_mix
+        lista_rubros.clear_widgets()
+        for rubro, monto, porcentaje in mezcla:
+            lista_rubros.add_widget(ExpenseMixItem(rubro, monto, porcentaje))
+        self.ids.lbl_expense_empty.text = ("" if mezcla
+                                           else "Sin egresos registrados")
+
+        lista_contable = self.ids.list_accounting
+        lista_contable.clear_widgets()
+        for fila in contable["filas"]:
+            lista_contable.add_widget(AccountingMonthItem(*fila))
+        self.ids.lbl_accounting_empty.text = ("" if contable["filas"]
+                                              else "Sin movimientos todavía")
+
         conn.close()
         
         if not rows:
@@ -2593,6 +2996,137 @@ class MonthlyProfitItem(BoxLayout):
     def _update_rect(self, instance, value):
         self.k_rect.size = self.size
         self.k_rect.pos = self.pos
+
+
+class AccountingMonthItem(BoxLayout):
+    """Fila de la tabla "Ingresos y Egresos por Mes".
+
+    etiqueta : mes ya armado, p. ej. "Sep 2025"
+    ingresos : plata que entrio en el mes (bruta)
+    egresos  : gastos del mes mas las comisiones de la app
+    balance  : ingresos - egresos, el mismo numero que da "Ganancia por Mes"
+    margen   : balance sobre ingresos en %, o None si no hubo ingresos
+    """
+
+    def __init__(self, etiqueta, ingresos, egresos, balance, margen, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'horizontal'
+        self.size_hint_y = None
+        self.height = '46dp'
+        self.padding = [6, 4]
+        self.spacing = 4
+
+        with self.canvas.before:
+            Color(rgba=[1, 1, 1, 1])
+            self.k_rect = RoundedRectangle(size=self.size, pos=self.pos,
+                                           radius=[8])
+        self.bind(size=self._update_rect, pos=self._update_rect)
+
+        ing = float(ingresos or 0.0)
+        egr = float(egresos or 0.0)
+        bal = float(balance or 0.0)
+
+        lbl_mes = Label(text=str(etiqueta), font_size='12sp', bold=True,
+                        color=TEXT_PRIMARY, halign='left', valign='middle',
+                        size_hint_x=0.28)
+        lbl_mes.bind(size=lbl_mes.setter('text_size'))
+
+        lbl_ing = Label(text="$" + format(ing, ",.2f"), font_size='11sp',
+                        color=PRIMARY, halign='right', valign='middle',
+                        size_hint_x=0.24)
+        lbl_ing.bind(size=lbl_ing.setter('text_size'))
+
+        lbl_egr = Label(text="$" + format(egr, ",.2f"), font_size='11sp',
+                        color=NEG, halign='right', valign='middle',
+                        size_hint_x=0.24)
+        lbl_egr.bind(size=lbl_egr.setter('text_size'))
+
+        celda_bal = BoxLayout(orientation='vertical', size_hint_x=0.24,
+                              spacing=0, padding=[0, 2, 0, 2])
+        signo = "+" if bal >= 0 else ""
+        lbl_bal = Label(text="%s$%s" % (signo, format(bal, ",.2f")),
+                        font_size='12sp', bold=True,
+                        color=PRIMARY if bal >= 0 else NEG,
+                        halign='right', valign='middle',
+                        size_hint_y=None, height='24dp')
+        lbl_bal.bind(size=lbl_bal.setter('text_size'))
+
+        if margen is None:
+            texto_margen = "sin ingresos"
+        else:
+            texto_margen = "margen %+.0f%%" % float(margen)
+        lbl_margen = Label(text=texto_margen, font_size='9sp',
+                           color=_margen_color(margen), halign='right',
+                           valign='middle', size_hint_y=None, height='16dp')
+        lbl_margen.bind(size=lbl_margen.setter('text_size'))
+
+        celda_bal.add_widget(lbl_bal)
+        celda_bal.add_widget(lbl_margen)
+
+        self.add_widget(lbl_mes)
+        self.add_widget(lbl_ing)
+        self.add_widget(lbl_egr)
+        self.add_widget(celda_bal)
+
+    def _update_rect(self, instance, value):
+        self.k_rect.size = self.size
+        self.k_rect.pos = self.pos
+
+
+class ExpenseMixItem(BoxLayout):
+    """Fila de "¿En qué se va el dinero?": rubro, monto y % del total."""
+
+    def __init__(self, rubro, monto, porcentaje, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'vertical'
+        self.size_hint_y = None
+        self.height = '42dp'
+        self.padding = [6, 5]
+        self.spacing = 2
+        self._fraccion = 0.0
+        try:
+            self._fraccion = max(0.0, min(1.0, float(porcentaje or 0.0) / 100.0))
+        except (TypeError, ValueError):
+            self._fraccion = 0.0
+
+        with self.canvas.before:
+            Color(rgba=[1, 1, 1, 1])
+            self.k_rect = RoundedRectangle(size=self.size, pos=self.pos,
+                                           radius=[8])
+            Color(rgba=[0.94, 0.94, 0.96, 1])
+            self.k_base = RoundedRectangle(size=(10, 4), pos=(self.x, self.y),
+                                           radius=[2])
+            Color(rgba=[0.95, 0.60, 0.15, 1])
+            self.k_barra = RoundedRectangle(size=(10, 4), pos=(self.x, self.y),
+                                            radius=[2])
+        self.bind(size=self._update_rect, pos=self._update_rect)
+
+        monto_f = float(monto or 0.0)
+        fila_top = BoxLayout(orientation='horizontal', size_hint_y=None,
+                             height='20dp', spacing=4)
+        lbl_rubro = Label(text=str(rubro), font_size='12sp', bold=True,
+                          color=TEXT_PRIMARY, halign='left', valign='middle',
+                          size_hint_x=0.58)
+        lbl_rubro.bind(size=lbl_rubro.setter('text_size'))
+        lbl_valor = Label(text="$%s · %.0f%%" % (format(monto_f, ",.2f"),
+                                                float(porcentaje or 0.0)),
+                          font_size='11sp', color=TEXT_SECONDARY,
+                          halign='right', valign='middle', size_hint_x=0.42)
+        lbl_valor.bind(size=lbl_valor.setter('text_size'))
+        fila_top.add_widget(lbl_rubro)
+        fila_top.add_widget(lbl_valor)
+        self.add_widget(fila_top)
+
+    def _update_rect(self, instance, value):
+        self.k_rect.size = self.size
+        self.k_rect.pos = self.pos
+        ancho = max(0.0, self.width - 12)
+        alto_base = 4
+        y = self.y + 5
+        self.k_base.size = (ancho, alto_base)
+        self.k_base.pos = (self.x + 6, y)
+        self.k_barra.size = (ancho * self._fraccion, alto_base)
+        self.k_barra.pos = (self.x + 6, y)
 
 
 def show_day_details(date_str):

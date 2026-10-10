@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.4"
-VERSION_CODE = 114
-NOTA = "Estadisticas: lista Ganancia por Mes con la variacion respecto al mes anterior."
+VERSION = "1.1.5"
+VERSION_CODE = 115
+NOTA = "Estadisticas: control contable de ingresos y egresos por mes, con margen y factibilidad."
