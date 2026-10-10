@@ -1295,6 +1295,43 @@ ScreenManager:
                     color: 0.08, 0.08, 0.09, 1
                     size_hint_y: None
                     height: '20dp'
+
+                BoxLayout:
+                    size_hint_y: None
+                    height: '30dp'
+                    spacing: 6
+                    Button:
+                        id: btn_rubro_prev
+                        text: "◀"
+                        size_hint_x: None
+                        width: '36dp'
+                        background_normal: ''
+                        background_color: [0.94, 0.94, 0.96, 1]
+                        color: 0.08, 0.08, 0.09, 1
+                        font_size: '14sp'
+                        bold: True
+                        on_press: root.rubro_anterior()
+                    Label:
+                        id: lbl_rubro_mes
+                        text: "Sin datos"
+                        font_size: '12sp'
+                        bold: True
+                        color: 0.08, 0.08, 0.09, 1
+                        halign: 'center'
+                        valign: 'middle'
+                        text_size: self.size
+                    Button:
+                        id: btn_rubro_next
+                        text: "▶"
+                        size_hint_x: None
+                        width: '36dp'
+                        background_normal: ''
+                        background_color: [0.94, 0.94, 0.96, 1]
+                        color: 0.08, 0.08, 0.09, 1
+                        font_size: '14sp'
+                        bold: True
+                        on_press: root.rubro_siguiente()
+
                 BoxLayout:
                     id: list_expense_mix
                     orientation: 'vertical'
@@ -2358,6 +2395,18 @@ def _etiqueta_mes(clave):
         return str(clave)
 
 
+def _etiqueta_mes_largo(clave):
+    """'2025-09' -> 'Septiembre 2025', para el titulo del desglose."""
+    try:
+        anio = int(clave[:4])
+        mes = int(clave[5:7])
+        if not 1 <= mes <= 12:
+            return str(clave)
+        return "%s %d" % (MESES_NOMBRES[mes - 1], anio)
+    except Exception:
+        return str(clave)
+
+
 # Neto mensual de la cuenta Ahorro InDrive: ingresos menos comision (solo en
 # Viaje InDrive) menos los gastos, que ya incluyen gasolina y el aporte al
 # carro que graba la pantalla de sesion. El limite es del mas reciente
@@ -2556,12 +2605,65 @@ class StatsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.bind(size=self.trigger_draw)
+        self._meses_rubro = []      # claves 'AAAA-MM' con movimientos, desc
+        self._filas_rubro = []      # filas de SQL_EGRESOS_RUBRO
+        self._rubro_mes = None      # mes que muestra "¿En qué se va el dinero?"
 
     def trigger_draw(self, *args):
         Clock.schedule_once(self.draw_chart, 0.05)
 
     def on_enter(self, *args):
         Clock.schedule_once(self.draw_chart, 0.1)
+
+    def rubro_anterior(self, *args):
+        """Muestra un mes mas viejo (◀)."""
+        self._mover_rubro(+1)
+
+    def rubro_siguiente(self, *args):
+        """Muestra un mes mas reciente (▶)."""
+        self._mover_rubro(-1)
+
+    def _mover_rubro(self, delta):
+        meses = self._meses_rubro
+        if not meses:
+            return
+        try:
+            idx = meses.index(self._rubro_mes)
+        except ValueError:
+            idx = 0
+        nuevo = idx + delta
+        if not 0 <= nuevo < len(meses):
+            return
+        self._rubro_mes = meses[nuevo]
+        self._pintar_rubros()
+
+    def _pintar_rubros(self):
+        """Dibuja el desglose de egresos del mes elegido y deja las flechas
+        apagadas en los extremos, para que no se pase de los datos."""
+        meses = self._meses_rubro
+        clave = self._rubro_mes
+        idx = meses.index(clave) if clave in meses else -1
+
+        btn_prev = self.ids.btn_rubro_prev
+        btn_next = self.ids.btn_rubro_next
+        btn_prev.disabled = (idx < 0 or idx >= len(meses) - 1)
+        btn_next.disabled = (idx <= 0)
+
+        lista = self.ids.list_expense_mix
+        lista.clear_widgets()
+
+        if idx < 0:
+            self.ids.lbl_rubro_mes.text = "Sin datos"
+            self.ids.lbl_expense_empty.text = "Sin movimientos todavía"
+            return
+
+        mezcla, total = _desglose_egresos(self._filas_rubro, [clave])
+        for rubro, monto, porcentaje in mezcla:
+            lista.add_widget(ExpenseMixItem(rubro, monto, porcentaje))
+        self.ids.lbl_rubro_mes.text = "%s · $%s" % (
+            _etiqueta_mes_largo(clave), format(total, ",.2f"))
+        self.ids.lbl_expense_empty.text = ("" if mezcla
+                                           else "Sin egresos en este mes")
 
     def _volver_atras(self, *args):
         # El KV del botón "< Volver" llama a este metodo y no existia:
@@ -2646,14 +2748,13 @@ class StatsScreen(Screen):
 
         meses_visibles = [fila[0] for fila in filas_contable]
         cur.execute(SQL_EGRESOS_RUBRO)
-        rubros = _desglose_egresos(cur.fetchall(), meses_visibles)
-        mezcla, _total_egresos = rubros
-        lista_rubros = self.ids.list_expense_mix
-        lista_rubros.clear_widgets()
-        for rubro, monto, porcentaje in mezcla:
-            lista_rubros.add_widget(ExpenseMixItem(rubro, monto, porcentaje))
-        self.ids.lbl_expense_empty.text = ("" if mezcla
-                                           else "Sin egresos registrados")
+        self._filas_rubro = cur.fetchall()
+        self._meses_rubro = meses_visibles
+        # Si el mes elegido sigue existiendo no se salta: al volver a la
+        # pantalla el usuario sigue viendo donde estaba.
+        if self._rubro_mes not in meses_visibles:
+            self._rubro_mes = meses_visibles[0] if meses_visibles else None
+        self._pintar_rubros()
 
         lista_contable = self.ids.list_accounting
         lista_contable.clear_widgets()

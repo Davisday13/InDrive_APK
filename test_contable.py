@@ -91,6 +91,14 @@ def _armar_pantalla():
 
 
 def main_test():
+    # ------------------------------------------------ etiquetas de mes ----
+    chk(main._etiqueta_mes_largo('2025-09') == 'Septiembre 2025',
+        "_etiqueta_mes_largo(2025-09) -> %r" % main._etiqueta_mes_largo('2025-09'))
+    chk(main._etiqueta_mes_largo('2024-12') == 'Diciembre 2024',
+        "_etiqueta_mes_largo(2024-12) -> %r" % main._etiqueta_mes_largo('2024-12'))
+    chk(main._etiqueta_mes_largo('2025-13') == '2025-13',
+        "_etiqueta_mes_largo con mes 13 -> %r" % main._etiqueta_mes_largo('2025-13'))
+
     # ------------------------------------------------ resumen contable ----
     contable = main._calcular_contable(
         [('2025-10', 50.0, 10.0), ('2025-09', 42.0, 17.0), ('2025-08', 0.0, 0.0)])
@@ -244,7 +252,8 @@ def main_test():
                       'lbl_balance_total', 'lbl_margen_total',
                       'lbl_factibilidad', 'list_expense_mix',
                       'lbl_expense_empty', 'list_accounting',
-                      'lbl_accounting_empty'):
+                      'lbl_accounting_empty', 'lbl_rubro_mes',
+                      'btn_rubro_prev', 'btn_rubro_next'):
             chk(clave in pantalla.ids,
                 "falta la id %r en <StatsScreen>" % clave)
 
@@ -281,11 +290,22 @@ def main_test():
         chk(pantalla.ids.lbl_accounting_empty.text == "",
             "con datos el aviso de vacio debe quedarse en blanco")
 
+        # "en que se va el dinero": arranca en el mes mas reciente y solo
+        # muestra ese mes
+        chk(pantalla._rubro_mes == '2025-10',
+            "el desglose debia arrancar en octubre y arranco en %r"
+            % (pantalla._rubro_mes,))
+        chk(pantalla.ids.lbl_rubro_mes.text == "Octubre 2025 · $10.00",
+            "el titulo del desglose dice %r"
+            % pantalla.ids.lbl_rubro_mes.text)
         rubros_pintados = len(pantalla.ids.list_expense_mix.children)
-        chk(rubros_pintados == 3,
-            "se pintaron %d de 3 rubros de egreso" % rubros_pintados)
+        chk(rubros_pintados == 1,
+            "se pintaron %d de 1 rubro de egreso en octubre" % rubros_pintados)
         chk(pantalla.ids.lbl_expense_empty.text == "",
-            "con rubros el aviso de vacio debe quedarse en blanco")
+            "con rubros el aviso de vacio debe quedar en blanco")
+        chk(pantalla.ids.btn_rubro_next.disabled and
+            not pantalla.ids.btn_rubro_prev.disabled,
+            "en el mes mas reciente la flecha ▶ debe estar apagada")
 
         # fila contable: el mes, los tres importes y el margen a la vista
         filas = [_hijos(f) for f in pantalla.ids.list_accounting.children]
@@ -300,15 +320,49 @@ def main_test():
             chk(any('80%' in t for t in fila_oct),
                 "la fila de octubre no muestra el margen: %r" % (fila_oct,))
 
-        # rubro: nombre, monto y participacion
+        # rubro del mes: nombre, monto y participacion
         rubros = [_hijos(r) for r in pantalla.ids.list_expense_mix.children]
         comisiones = next((t for t in rubros
                            if any('Comisiones InDrive' in x for x in t)), None)
         chk(comisiones is not None,
             "no aparece el rubro Comisiones InDrive: %r" % (rubros,))
         if comisiones:
-            chk(any('$15.00' in t for t in comisiones),
+            chk(any('$10.00' in t for t in comisiones),
                 "el monto del rubro no se pinto: %r" % (comisiones,))
+
+        # ------------------------- navegar al mes anterior (septiembre) --
+        pantalla.rubro_anterior()
+        chk(pantalla._rubro_mes == '2025-09',
+            "al retroceder debia ir a septiembre y quedo en %r"
+            % (pantalla._rubro_mes,))
+        chk(pantalla.ids.lbl_rubro_mes.text == "Septiembre 2025 · $17.00",
+            "el titulo de septiembre dice %r"
+            % pantalla.ids.lbl_rubro_mes.text)
+        sep = [_hijos(r) for r in pantalla.ids.list_expense_mix.children]
+        chk(len(sep) == 3,
+            "septiembre debia pintar 3 rubros y pintó %d" % len(sep))
+        chk(any(any('$8.00' in x for x in fila) for fila in sep) and
+            any(any('$5.00' in x for x in fila) for fila in sep) and
+            any(any('$4.00' in x for x in fila) for fila in sep),
+            "los rubros de septiembre salieron mal: %r" % (sep,))
+        chk(pantalla.ids.btn_rubro_prev.disabled and
+            not pantalla.ids.btn_rubro_next.disabled,
+            "en el mes mas viejo la flecha ◀ debe estar apagada")
+
+        # no se puede ir mas alla de los datos
+        pantalla.rubro_anterior()
+        chk(pantalla._rubro_mes == '2025-09',
+            "con un solo mes previo no debia moverse: %r"
+            % (pantalla._rubro_mes,))
+
+        # y se puede volver
+        pantalla.rubro_siguiente()
+        chk(pantalla._rubro_mes == '2025-10',
+            "al avanzar debia volver a octubre y quedo en %r"
+            % (pantalla._rubro_mes,))
+        chk(pantalla.ids.lbl_rubro_mes.text == "Octubre 2025 · $10.00",
+            "el titulo de octubre no volvio: %r"
+            % pantalla.ids.lbl_rubro_mes.text)
     finally:
         main.writable_db_path = ruta_origen
         try:
@@ -336,6 +390,16 @@ def main_test():
             "sin movimientos hay que avisarlo en la tabla contable")
         chk(pantalla.ids.lbl_expense_empty.text != "",
             "sin egresos hay que avisarlo en el desglose")
+        chk(pantalla.ids.lbl_rubro_mes.text == "Sin datos",
+            "sin meses el titulo del desglose debe decirlo: %r"
+            % pantalla.ids.lbl_rubro_mes.text)
+        chk(pantalla.ids.btn_rubro_prev.disabled and
+            pantalla.ids.btn_rubro_next.disabled,
+            "sin meses las flechas deben quedar apagadas")
+        pantalla.rubro_anterior()
+        chk(pantalla._rubro_mes is None,
+            "sin meses la flecha no debe mover nada: %r"
+            % (pantalla._rubro_mes,))
         chk(len(pantalla.ids.list_accounting.children) == 0,
             "sin datos no debe pintarse ninguna fila contable")
         chk(pantalla.badge_texto == "Sin movimientos todavía",

@@ -9,7 +9,7 @@ Desarrollada con **Python + Kivy**.
 - 🚗 **Fondo del Carro** – Control de gastos e ingresos del vehículo
 - 🏠 **Alquiler Casa** – Gestión de pagos de alquiler y tasas de aseo
 - 📅 **Calendario** – Vista diaria de movimientos
-- 📊 **Estadísticas** – Resúmenes mensuales, comparativos y control contable de ingresos vs egresos con margen y factibilidad
+- 📊 **Estadísticas** – Resúmenes mensuales, comparativos y control contable de ingresos vs egresos con margen, factibilidad y desglose de gastos por mes y rubro
 
 ## 📲 Descargar el APK
 
