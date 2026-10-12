@@ -349,7 +349,8 @@ def init_database():
             viajes INTEGER DEFAULT 0,
             km REAL DEFAULT 0,
             categoria TEXT NOT NULL,
-            descripcion TEXT
+            descripcion TEXT,
+            km_cliente REAL DEFAULT 0
         )
     """)
     
@@ -449,6 +450,13 @@ def init_database():
     # Agregar columna deuda_total si no existe en clientes (BDs antiguas)
     try:
         cursor.execute("ALTER TABLE clientes ADD COLUMN deuda_total REAL DEFAULT 0")
+    except:
+        pass
+
+    # Agregar columna km_cliente (Km InDrive del cliente) si no existe en
+    # transacciones. Va al FINAL: main.py y cloud_db.py leen por posicion.
+    try:
+        cursor.execute("ALTER TABLE transacciones ADD COLUMN km_cliente REAL DEFAULT 0")
     except:
         pass
 
@@ -1101,12 +1109,70 @@ ScreenManager:
                 RoundedCard:
                     bg_color: [1, 1, 1, 1]
                     Label:
-                        text: "Eficiencia"
+                        text: "$/km Real (meta 0.45)"
                         font_size: '11sp'
                         color: 0.3, 0.3, 0.35, 1
                     Label:
                         id: lbl_efficiency
-                        text: "0.00/KM"
+                        text: "$0.00/KM"
+                        font_size: '16sp'
+                        bold: True
+                        color: 0.07, 0.65, 0.60, 1
+
+            BoxLayout:
+                size_hint_y: None
+                height: '70dp'
+                spacing: 10
+                RoundedCard:
+                    bg_color: [1, 1, 1, 1]
+                    Label:
+                        text: "Precio $/km (0.75)"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                    Label:
+                        id: lbl_kpi_precio
+                        text: "-"
+                        font_size: '16sp'
+                        bold: True
+                        color: 0.07, 0.65, 0.60, 1
+                RoundedCard:
+                    bg_color: [1, 1, 1, 1]
+                    Label:
+                        text: "Km muerto (<40%)"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                    Label:
+                        id: lbl_kpi_muerto
+                        text: "-"
+                        font_size: '16sp'
+                        bold: True
+                        color: 0.07, 0.65, 0.60, 1
+
+            BoxLayout:
+                size_hint_y: None
+                height: '70dp'
+                spacing: 10
+                RoundedCard:
+                    bg_color: [1, 1, 1, 1]
+                    Label:
+                        text: "Km real/viaje (<6)"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                    Label:
+                        id: lbl_kpi_kmviaje
+                        text: "-"
+                        font_size: '16sp'
+                        bold: True
+                        color: 0.07, 0.65, 0.60, 1
+                RoundedCard:
+                    bg_color: [1, 1, 1, 1]
+                    Label:
+                        text: "Km InDrive/real"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                    Label:
+                        id: lbl_kpi_comparativa
+                        text: "-"
                         font_size: '16sp'
                         bold: True
                         color: 0.07, 0.65, 0.60, 1
@@ -2051,13 +2117,16 @@ class AhorroScreen(Screen):
             layout.add_widget(Label(text="Aporte Carro:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
             self.txt_uso_carro = TextInput(hint_text="0.00", multiline=False, size_hint_y=None, height='28dp')
             layout.add_widget(self.txt_uso_carro)
-            layout.add_widget(Label(text="Viajes/KM:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
+            layout.add_widget(Label(text="Viajes/KM real:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
             box = BoxLayout(spacing=4)
             self.txt_viajes = TextInput(hint_text="Vj", multiline=False)
-            self.txt_km = TextInput(hint_text="KM", multiline=False)
+            self.txt_km = TextInput(hint_text="KM real", multiline=False)
             box.add_widget(self.txt_viajes)
             box.add_widget(self.txt_km)
             layout.add_widget(box)
+            layout.add_widget(Label(text="Km InDrive (cliente):", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
+            self.txt_km_cliente = TextInput(hint_text="Km app inDrive", multiline=False, size_hint_y=None, height='28dp')
+            layout.add_widget(self.txt_km_cliente)
             btn_save = AccentButton(text="Guardar Viaje", size_hint_y=None, height='35dp')
             btn_save.bind(on_press=self.save_viaje)
             container.add_widget(layout)
@@ -2108,16 +2177,20 @@ class AhorroScreen(Screen):
         self.balance_ahorro = f"${tot_ing - tot_eg:,.2f}"
 
         self.ids.list_transacciones.clear_widgets()
-        cursor.execute("SELECT id, fecha, tipo, categoria, monto, comision, viajes, km, descripcion FROM transacciones WHERE cuenta = 'Ahorro InDrive' ORDER BY fecha DESC LIMIT 50")
+        cursor.execute("SELECT id, fecha, tipo, categoria, monto, comision, viajes, km, descripcion, km_cliente FROM transacciones WHERE cuenta = 'Ahorro InDrive' ORDER BY fecha DESC LIMIT 50")
         rows = cursor.fetchall()
         for r in rows:
-            tid, fd, tp, cat, monto, com, vj, km, desc = r
+            tid, fd, tp, cat, monto, com, vj, km, desc, km_c = r
             try:
                 fecha_v = datetime.strptime(fd, "%Y-%m-%d").strftime("%d/%m")
             except:
                 fecha_v = fd
             display_monto = (monto - com) if cat == "Viaje InDrive" else monto
-            display_desc = f"{desc} (Viajes: {vj})" if cat == "Viaje InDrive" else desc
+            if cat == "Viaje InDrive":
+                display_desc = (f"{desc} (Viajes: {vj} · Km {float(km_c or 0):g}/{float(km or 0):g})"
+                                if km_c else f"{desc} (Viajes: {vj})")
+            else:
+                display_desc = desc
             item = TransactionItem(tid, fecha_v, tp, cat, display_monto, display_desc,
                                    self.delete_item, edit_callback=self.edit_item)
             self.ids.list_transacciones.add_widget(item)
@@ -2135,6 +2208,8 @@ class AhorroScreen(Screen):
             uso_carro = float(self.txt_uso_carro.text.strip() or 0)
             viajes = int(self.txt_viajes.text.strip() or 0)
             km = float(self.txt_km.text.strip() or 0)
+            campo_km_ic = getattr(self, 'txt_km_cliente', None)
+            km_cliente = float(campo_km_ic.text.strip() or 0) if campo_km_ic else 0
         except:
             mostrar_error("Los campos numéricos deben ser números válidos.\nEjemplo: 25.50")
             return
@@ -2147,7 +2222,7 @@ class AhorroScreen(Screen):
         cur = conn.cursor()
 
         if bruto > 0:
-            cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, comision, viajes, km, categoria, descripcion) VALUES (?, 'Ahorro InDrive', 'Ingreso', ?, ?, ?, ?, 'Viaje InDrive', 'Sesión')", (fecha_db, bruto, comision, viajes, km))
+            cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, comision, viajes, km, categoria, descripcion, km_cliente) VALUES (?, 'Ahorro InDrive', 'Ingreso', ?, ?, ?, ?, 'Viaje InDrive', 'Sesión', ?)", (fecha_db, bruto, comision, viajes, km, km_cliente))
         if gasolina > 0:
             cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, categoria, descripcion) VALUES (?, 'Ahorro InDrive', 'Gasto', ?, 'Combustible', 'Gasolina')", (fecha_db, gasolina))
         if uso_carro > 0:
@@ -2156,8 +2231,11 @@ class AhorroScreen(Screen):
 
         close_db(conn)
         self.refresh_all()
-        for attr in ['txt_bruto', 'txt_comision', 'txt_gasolina', 'txt_uso_carro', 'txt_viajes', 'txt_km']:
-            getattr(self, attr).text = ""
+        for attr in ['txt_bruto', 'txt_comision', 'txt_gasolina', 'txt_uso_carro',
+                     'txt_viajes', 'txt_km', 'txt_km_cliente']:
+            campo = getattr(self, attr, None)
+            if campo is not None:
+                campo.text = ""
 
     def save_otro(self, *args):
         fecha_db = fecha_de_campo(self.txt_fecha, "fecha")
@@ -2198,14 +2276,14 @@ class AhorroScreen(Screen):
     def edit_item(self, tid):
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT fecha, tipo, categoria, monto, comision, viajes, km, descripcion "
+        cur.execute("SELECT fecha, tipo, categoria, monto, comision, viajes, km, descripcion, km_cliente "
                     "FROM transacciones WHERE id = ?", (tid,))
         row = cur.fetchone()
         conn.close()
         if not row:
             self.refresh_all()
             return
-        fd, tp, cat, monto, com, vj, km, desc = row
+        fd, tp, cat, monto, com, vj, km, desc, km_c = row
         campos = [
             {'id': 'fecha', 'label': 'Fecha', 'tipo': 'fecha'},
             {'id': 'tipo', 'label': 'Tipo', 'tipo': 'texto'},
@@ -2214,19 +2292,21 @@ class AhorroScreen(Screen):
             {'id': 'comision', 'label': 'Comisión', 'tipo': 'numero'},
             {'id': 'viajes', 'label': 'Viajes', 'tipo': 'numero'},
             {'id': 'km', 'label': 'Kilómetros', 'tipo': 'numero'},
+            {'id': 'km_cliente', 'label': 'Km InDrive', 'tipo': 'numero'},
             {'id': 'descripcion', 'label': 'Descripción', 'tipo': 'texto'},
         ]
         valores = {'fecha': fd, 'tipo': tp, 'categoria': cat, 'monto': monto,
-                   'comision': com, 'viajes': vj, 'km': km, 'descripcion': desc}
+                   'comision': com, 'viajes': vj, 'km': km, 'km_cliente': km_c,
+                   'descripcion': desc}
 
         def guardar(v):
             conn = get_db_connection()
             conn.execute(
                 "UPDATE transacciones SET fecha=?, tipo=?, categoria=?, monto=?, "
-                "comision=?, viajes=?, km=?, descripcion=? WHERE id=?",
+                "comision=?, viajes=?, km=?, km_cliente=?, descripcion=? WHERE id=?",
                 (v['fecha'] or fd, v['tipo'], v['categoria'], _num(v['monto'], monto),
                  _num(v['comision'], com), _entero(v['viajes'], vj), _num(v['km'], km),
-                 v['descripcion'], tid))
+                 _num(v.get('km_cliente'), km_c), v['descripcion'], tid))
             close_db(conn)
             self.refresh_all()
 
@@ -2673,6 +2753,57 @@ class StatsScreen(Screen):
         except Exception:
             pass
 
+    def _pintar_kpis(self, neto, km, km_c, viajes, neto_kc, km_kc):
+        """Tarjetas de metas del conductor con su semáforo.
+
+        Si falta datos la tarjeta queda en gris: una meta no se presume
+        cumplida con la nada. neto = bruto menos comision, km = km reales
+        del auto, km_c = km que el cliente pago en inDrive.
+        """
+        verde, ambar, rojo, gris = PRIMARY, [0.95, 0.65, 0.15, 1], NEG, TEXT_SECONDARY
+
+        def _set(id_lbl, texto, color):
+            lbl = self.ids.get(id_lbl)
+            if lbl is None:
+                return
+            lbl.text = texto
+            lbl.color = list(color)
+
+        if km > 0:
+            real = neto / km
+            col = verde if real >= 0.45 else (ambar if real >= 0.30 else rojo)
+            _set('lbl_efficiency', f"${real:.2f}/KM", col)
+        else:
+            _set('lbl_efficiency', "Sin datos", gris)
+
+        if km_c > 0:
+            precio = neto_kc / km_c
+            col = verde if precio >= 0.75 else (ambar if precio >= 0.60 else rojo)
+            _set('lbl_kpi_precio', f"${precio:.2f}", col)
+        else:
+            _set('lbl_kpi_precio', "Sin datos", gris)
+
+        if km_kc > 0 and km_c > 0:
+            muerto = 1 - (km_c / km_kc)
+            col = verde if muerto <= 0.40 else (ambar if muerto <= 0.55 else rojo)
+            _set('lbl_kpi_muerto', f"{muerto * 100:.0f}%", col)
+        else:
+            _set('lbl_kpi_muerto', "Sin datos", gris)
+
+        if viajes > 0 and km > 0:
+            km_vj = km / viajes
+            col = verde if km_vj <= 6 else (ambar if km_vj <= 8 else rojo)
+            _set('lbl_kpi_kmviaje', f"{km_vj:.1f}", col)
+        else:
+            _set('lbl_kpi_kmviaje', "Sin datos", gris)
+
+        if km_kc > 0 and km_c > 0:
+            ratio = km_c / km_kc
+            col = verde if ratio >= 0.60 else (ambar if ratio >= 0.45 else rojo)
+            _set('lbl_kpi_comparativa', f"{km_c:,.0f}/{km_kc:,.0f}", col)
+        else:
+            _set('lbl_kpi_comparativa', "Sin datos", gris)
+
     def draw_chart(self, *args):
         holder = self.ids.chart_canvas
         holder.canvas.clear()
@@ -2695,9 +2826,17 @@ class StatsScreen(Screen):
         """)
         rows = cur.fetchall()
         
-        cur.execute("SELECT SUM(CASE WHEN categoria = 'Viaje InDrive' THEN monto - comision ELSE 0 END), SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END) FROM transacciones WHERE cuenta = 'Ahorro InDrive'")
-        neto, km = cur.fetchone()
-        self.ids.lbl_efficiency.text = f"${neto/km:.2f}/KM" if neto and km and km > 0 else "$0.00/KM"
+        cur.execute("""
+            SELECT SUM(CASE WHEN categoria = 'Viaje InDrive' THEN monto - comision ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km_cliente ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' AND km_cliente > 0 THEN monto - comision ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' AND km_cliente > 0 THEN km ELSE 0 END)
+            FROM transacciones WHERE cuenta = 'Ahorro InDrive'
+        """)
+        neto, km, km_c, viajes, neto_kc, km_kc = [(v or 0) for v in cur.fetchone()]
+        self._pintar_kpis(neto, km, km_c, viajes, neto_kc, km_kc)
         
         daily = self.ids.list_daily_profits
         daily.clear_widgets()
@@ -2708,7 +2847,8 @@ class StatsScreen(Screen):
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END) as viajes,
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END) as km,
                    SUM(CASE WHEN categoria = 'Combustible' THEN monto ELSE 0 END) as gas,
-                   SUM(CASE WHEN categoria = 'Uso del Carro' THEN monto ELSE 0 END) as uso
+                   SUM(CASE WHEN categoria = 'Uso del Carro' THEN monto ELSE 0 END) as uso,
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km_cliente ELSE 0 END) as km_c
             FROM transacciones WHERE cuenta = 'Ahorro InDrive' GROUP BY fecha ORDER BY fecha DESC LIMIT 15
         """)
         for row in cur.fetchall():
@@ -2985,7 +3125,8 @@ class TransactionItem(BoxLayout):
 
 
 class DailyProfitItem(BoxLayout):
-    def __init__(self, fecha, ingresos, gastos, viajes, km, gasolina, uso_carro, **kwargs):
+    def __init__(self, fecha, ingresos, gastos, viajes, km, gasolina, uso_carro,
+                 km_cliente=0, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
@@ -3009,7 +3150,13 @@ class DailyProfitItem(BoxLayout):
         left_layout = BoxLayout(orientation='vertical', size_hint_x=0.45, spacing=2)
         lbl_fecha = Label(text=fecha_str, font_size='13sp', bold=True, color=[0.08, 0.08, 0.09, 1], halign='left', valign='middle')
         lbl_fecha.bind(size=lbl_fecha.setter('text_size'))
-        sub_text = f"{viajes} vj | {km:,.0f} km" if viajes > 0 else "Manual"
+        if viajes > 0:
+            if km_cliente:
+                sub_text = f"{viajes} vj | {float(km_cliente):g}/{float(km or 0):g} km"
+            else:
+                sub_text = f"{viajes} vj | {km:,.0f} km"
+        else:
+            sub_text = "Manual"
         lbl_sub = Label(text=sub_text, font_size='11sp', color=[0.3, 0.3, 0.35, 1], halign='left', valign='middle')
         lbl_sub.bind(size=lbl_sub.setter('text_size'))
         left_layout.add_widget(lbl_fecha)

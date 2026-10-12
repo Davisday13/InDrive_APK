@@ -27,7 +27,8 @@ DDL_TRANSACCIONES = """
         viajes INTEGER DEFAULT 0,
         km REAL DEFAULT 0,
         categoria TEXT NOT NULL,
-        descripcion TEXT
+        descripcion TEXT,
+        km_cliente REAL DEFAULT 0
     )
 """
 
