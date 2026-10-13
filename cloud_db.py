@@ -342,6 +342,42 @@ def _chunks(lista, n):
         yield lista[i:i + n]
 
 
+def _crear_sync_ids(cur):
+    """Tabla local con los ids que ESTE equipo ya subio a la nube.
+
+    Solo se borran de la nube filas que subio este mismo equipo: asi una
+    base local nueva o a medio llenar (p. ej. una prueba en la PC) no
+    borra los datos que subio el telefono.
+    """
+    try:
+        cur.execute(
+            "CREATE TABLE IF NOT EXISTS sync_ids ("
+            "tabla TEXT NOT NULL, id INTEGER NOT NULL, "
+            "PRIMARY KEY (tabla, id))")
+        return True
+    except Exception as e:
+        _log("sync_ids: %s" % e)
+        return False
+
+
+def _ids_conocidos(cur, tabla):
+    try:
+        cur.execute("SELECT id FROM sync_ids WHERE tabla=?", (tabla,))
+        return set(int(r[0]) for r in cur.fetchall())
+    except Exception:
+        return set()
+
+
+def _guardar_ids_conocidos(cur, tabla, ids):
+    try:
+        cur.execute("DELETE FROM sync_ids WHERE tabla=?", (tabla,))
+        cur.executemany(
+            "INSERT OR REPLACE INTO sync_ids (tabla, id) VALUES (?, ?)",
+            [(tabla, int(i)) for i in ids if i is not None])
+    except Exception as e:
+        _log("sync_ids %s: %s" % (tabla, e))
+
+
 def datos_locales_vacios():
     """True si no hay ningun dato en las tablas (posible equipo nuevo)."""
     conn = _conn()
@@ -400,6 +436,7 @@ def push_all():
 
     try:
         cur = conn.cursor()
+        _crear_sync_ids(cur)
         for tabla in TABLAS:
             try:
                 cur.execute("SELECT * FROM " + tabla)
@@ -438,7 +475,12 @@ def push_all():
                 return False
 
             ids_remotos = [r.get("id") for r in (remoto or []) if isinstance(r, dict)]
-            borrables = [i for i in ids_remotos if i not in set(ids_locales)]
+            # Solo se borran de la nube las filas que subio este equipo:
+            # un id que aparecio sin pasar por aqui (otro equipo, una
+            # prueba en la PC) no se toca, para no perder datos.
+            conocidos = _ids_conocidos(cur, tabla)
+            borrables = [i for i in ids_remotos
+                         if i not in set(ids_locales) and i in conocidos]
             for lote in _chunks(borrables, 200):
                 if not lote:
                     continue
@@ -447,7 +489,9 @@ def push_all():
                 if status is None or status >= 400:
                     _set_estado(ERROR, "Borrado en %s fallo" % tabla)
                     return False
+            _guardar_ids_conocidos(cur, tabla, ids_locales)
 
+        conn.commit()
         ULTIMO_SYNC = time.time()
         _set_estado(SINCRONIZADO, "Sincronizado " + time.strftime("%H:%M:%S"))
         return True
@@ -479,6 +523,7 @@ def pull_all(reemplazar=True):
 
     try:
         cur = conn.cursor()
+        _crear_sync_ids(cur)
         for tabla in TABLAS:
             status, filas = _api(
                 "GET",
@@ -514,6 +559,10 @@ def pull_all(reemplazar=True):
                     _log("Insert %s: %s" % (tabla, e))
 
             _ajustar_secuencia(cur, tabla)
+            _guardar_ids_conocidos(
+                cur, tabla,
+                [f.get("id") for f in filas
+                 if isinstance(f, dict) and f.get("id") is not None])
 
         conn.commit()
         _pendiente_pull = False
