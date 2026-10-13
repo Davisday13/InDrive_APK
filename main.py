@@ -1392,7 +1392,7 @@ ScreenManager:
                     spacing: 6
                     Button:
                         id: btn_rubro_prev
-                        text: "◀"
+                        text: "<"
                         size_hint_x: None
                         width: '36dp'
                         background_normal: ''
@@ -1412,7 +1412,7 @@ ScreenManager:
                         text_size: self.size
                     Button:
                         id: btn_rubro_next
-                        text: "▶"
+                        text: ">"
                         size_hint_x: None
                         width: '36dp'
                         background_normal: ''
@@ -1627,7 +1627,7 @@ ScreenManager:
             height: '40dp'
             spacing: 6
             Button:
-                text: "◀"
+                text: "<"
                 size_hint_x: None
                 width: '44dp'
                 background_normal: ''
@@ -1645,7 +1645,7 @@ ScreenManager:
                 halign: 'center'
                 valign: 'middle'
             Button:
-                text: "▶"
+                text: ">"
                 size_hint_x: None
                 width: '44dp'
                 background_normal: ''
@@ -1805,7 +1805,7 @@ class DashboardScreen(Screen):
             text="Nueva versión %s" % version, font_size='13sp', bold=True,
             color=list(PRIMARY), halign='left', valign='middle', size_hint_x=1)
         self._aviso_titulo.bind(size=lambda i, v: setattr(i, 'text_size', v))
-        btn_cerrar = Button(text="✕", size_hint_x=None, width='26dp',
+        btn_cerrar = Button(text="×", size_hint_x=None, width='26dp',
                             background_color=[0, 0, 0, 0], color=list(TEXT_SECONDARY),
                             font_size='13sp', bold=True)
         btn_cerrar.bind(on_press=lambda b: self._ocultar_aviso())
@@ -2153,7 +2153,8 @@ class AhorroScreen(Screen):
         container.clear_widgets()
 
         if self.current_form == "viaje":
-            layout = GridLayout(cols=2, spacing=6)
+            layout = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            layout.bind(minimum_height=layout.setter('height'))
             layout.add_widget(Label(text="Fecha:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
             self.txt_fecha = DateInput(text=hoy_corto(), multiline=False, size_hint_y=None, height='28dp')
             self.txt_fecha.fuente = _sug_fechas
@@ -2171,9 +2172,9 @@ class AhorroScreen(Screen):
             self.txt_uso_carro = TextInput(hint_text="0.00", multiline=False, size_hint_y=None, height='28dp')
             layout.add_widget(self.txt_uso_carro)
             layout.add_widget(Label(text="Viajes/KM real:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
-            box = BoxLayout(spacing=4)
-            self.txt_viajes = TextInput(hint_text="Vj", multiline=False)
-            self.txt_km = TextInput(hint_text="KM real", multiline=False)
+            box = BoxLayout(spacing=4, size_hint_y=None, height='28dp')
+            self.txt_viajes = TextInput(hint_text="Vj", multiline=False, size_hint_y=None, height='28dp')
+            self.txt_km = TextInput(hint_text="KM real", multiline=False, size_hint_y=None, height='28dp')
             box.add_widget(self.txt_viajes)
             box.add_widget(self.txt_km)
             layout.add_widget(box)
@@ -2185,7 +2186,8 @@ class AhorroScreen(Screen):
             container.add_widget(layout)
             container.add_widget(btn_save)
         else:
-            layout = GridLayout(cols=2, spacing=6)
+            layout = GridLayout(cols=2, spacing=6, size_hint_y=None)
+            layout.bind(minimum_height=layout.setter('height'))
             layout.add_widget(Label(text="Fecha:", font_size='11sp', color=[0.3, 0.3, 0.35, 1], size_hint_y=None, height='28dp'))
             self.txt_fecha = DateInput(text=hoy_corto(), multiline=False, size_hint_y=None, height='28dp')
             self.txt_fecha.fuente = _sug_fechas
@@ -2215,22 +2217,40 @@ class AhorroScreen(Screen):
             container.add_widget(layout)
             container.add_widget(btn_save)
 
+        # El contenedor se redimensiona cada vez que la grilla cambia de
+        # alto, ademas de dos reintentos: en el telefono la maqueta llega
+        # despues y con un solo schedule el formulario quedaba a 240dp y
+        # la fila Km InDrive se comia el boton Guardar.
+        grid = container.children[1]
+        grid.bind(minimum_height=self._ajustar_form_container)
+        self._intentos_form = 0
+        self._ajustar_form_container()
         Clock.schedule_once(self._ajustar_form_container, 0)
+        Clock.schedule_once(self._ajustar_form_container, 0.25)
 
     def _ajustar_form_container(self, *args):
         """form_container mide 240dp fijos en el KV.
 
         Con el campo Km InDrive el formulario pide mas alto y la ultima
-        fila salia cortada, asi que el contenedor se ajusta a lo que
-        pida el GridLayout (con piso en 240 y techo en 420).
+        fila salia cortada (o metida debajo del boton Guardar), asi que
+        el contenedor se ajusta a lo que pida el GridLayout (con piso en
+        240 y techo en 420). Se llama tambien desde el bind de
+        minimum_height y con reintentos, porque en el telefono la grilla
+        termina de maquetar despues del primer frame.
         """
         cont = self.ids.get('form_container')
         if cont is None or len(cont.children) < 2:
             return
         grid, btn = cont.children[1], cont.children[0]
-        alto_grid = getattr(grid, 'minimum_height', 0) or 0
+        alto_grid = max(getattr(grid, 'minimum_height', 0) or 0,
+                        getattr(grid, 'height', 0) or 0)
         if alto_grid <= 0:
+            intentos = getattr(self, '_intentos_form', 0)
+            if intentos < 6:
+                self._intentos_form = intentos + 1
+                Clock.schedule_once(self._ajustar_form_container, 0.15)
             return
+        self._intentos_form = 0
         cont.height = max(240, min(420, alto_grid + btn.height + 24))
 
     def refresh_all(self):
@@ -3249,9 +3269,9 @@ class TransactionItem(BoxLayout):
         self.add_widget(info_layout)
         self.add_widget(lbl_monto)
         if edit_callback is not None:
-            btn_edit = Button(text="✎", size_hint_x=None, width='26dp',
+            btn_edit = Button(text="Editar", size_hint_x=None, width='48dp',
                               background_color=[0, 0, 0, 0], color=[0.07, 0.65, 0.60, 1],
-                              bold=True, font_size='15sp')
+                              bold=True, font_size='10sp')
             btn_edit.bind(on_press=lambda btn: edit_callback(tid))
             self.add_widget(btn_edit)
         self.add_widget(btn_del)
@@ -3858,7 +3878,7 @@ class CasaScreen(Screen):
             l.bind(size=lambda i, v: setattr(i, 'text_size', v))
             r.add_widget(l)
         if on_edit is not None:
-            b = Button(text="✎", size_hint_x=None, width='26dp', font_size='13sp',
+            b = Button(text="Editar", size_hint_x=None, width='48dp', font_size='10sp',
                        background_color=[0, 0, 0, 0], color=[0.07, 0.65, 0.60, 1], bold=True)
             b.bind(on_press=lambda inst, cb=on_edit: cb())
             r.add_widget(b)
