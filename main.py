@@ -275,6 +275,16 @@ def editar_registro(titulo, campos, on_guardar, valores=None, texto_boton="Guard
         if tipo == 'fecha':
             entrada = DateInput(text=inicial, size_hint_y=None, height='36dp', font_size='13sp')
             entrada.fuente = _sug_fechas
+        elif campo.get('sugerencias'):
+            # Misma ayuda que el resto de la app: el desplegable aprende de
+            # las descripciones ya escritas en transacciones.
+            entrada = CampoSugerencias(text=inicial, hint_text=campo.get('hint', ''),
+                                       size_hint_y=None, height='36dp', font_size='13sp',
+                                       background_color=[1, 1, 1, 1],
+                                       foreground_color=list(TEXT_PRIMARY),
+                                       cursor_color=list(PRIMARY),
+                                       padding=[8, 8])
+            entrada.fuente = _sug_de('transacciones', 'descripcion')
         else:
             entrada = TextInput(text=inicial, hint_text=campo.get('hint', ''),
                                 multiline=False, size_hint_y=None, height='36dp',
@@ -2080,6 +2090,35 @@ class DashboardScreen(Screen):
         conn.close()
 
 
+def guardar_retiro(fecha, monto, descripcion):
+    """Valida y guarda un Retiro del fondo. Devuelve el error o None.
+
+    El retiro es la forma de sacar plata del Ahorro InDrive para uso
+    personal (dia sin trabajar, imprevisto) sin inventar un gasto del
+    negocio: baja el Saldo, entra al Control Contable como rubro
+    'Retiros' y queda con su descripcion para poder auditar despues en
+    que se fue la plata. La ganancia del dia y del mes no la toca.
+    """
+    fecha = (fecha or "").strip()
+    if not fecha:
+        return "La fecha no puede quedar vacia."
+    monto = _num(monto, 0)
+    if monto <= 0:
+        return "Ingresa el monto a retirar.\nEjemplo: 25.00"
+    texto = (descripcion or "").strip()
+    if not texto:
+        return "Escribe en que se uso el dinero.\nEj: gastos de la casa"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO transacciones (fecha, cuenta, tipo, monto,"
+        " categoria, descripcion)"
+        " VALUES (?, 'Ahorro InDrive', 'Gasto', ?, 'Retiro', ?)",
+        (fecha, monto, texto))
+    close_db(conn)
+    return None
+
+
 class AhorroScreen(Screen):
     balance_ahorro = StringProperty("$0.00")
     current_form = StringProperty("viaje")
@@ -2293,42 +2332,33 @@ class AhorroScreen(Screen):
     def abrir_retiro(self, *args):
         """Popup para sacar plata del fondo para uso personal.
 
-        Se guarda como Gasto con categoria 'Retiro': baja el Saldo, pero
-        las estadisticas lo dejan afuera, asi un dia sin trabajar no
-        aparece en rojo ni arruina el mes.
+        Se guarda como Gasto con categoria 'Retiro' y con la descripcion
+        de en que se uso (obligatoria, para poder auditar): baja el Saldo
+        y entra al Control Contable como rubro 'Retiros', pero la
+        ganancia del dia y del mes no la tocan.
         """
         campos = [
             {'id': 'fecha', 'label': 'Fecha', 'tipo': 'fecha'},
             {'id': 'monto', 'label': 'Monto a retirar', 'tipo': 'numero',
              'hint': '0.00'},
+            {'id': 'descripcion', 'label': 'Descripción', 'tipo': 'texto',
+             'hint': 'ej: gastos de la casa, mecanico...', 'sugerencias': True},
         ]
-        valores = {'fecha': hoy_corto(), 'monto': ''}
+        valores = {'fecha': hoy_corto(), 'monto': '', 'descripcion': ''}
 
         def guardar(v):
-            fecha_db = v.get('fecha') or ''
-            if not fecha_db:
-                mostrar_error("La fecha no puede quedar vacia.")
+            error = guardar_retiro(v.get('fecha'), v.get('monto'),
+                                   v.get('descripcion'))
+            if error:
+                mostrar_error(error)
                 return
-            monto = _num(v.get('monto'), 0)
-            if monto <= 0:
-                mostrar_error("Ingresa el monto a retirar.\nEjemplo: 25.00")
-                return
-            conn = get_db_connection()
-            cur = conn.cursor()
-            cur.execute(
-                "INSERT INTO transacciones (fecha, cuenta, tipo, monto,"
-                " categoria, descripcion)"
-                " VALUES (?, 'Ahorro InDrive', 'Gasto', ?, 'Retiro',"
-                " 'Retiro de fondo')",
-                (fecha_db, monto))
-            close_db(conn)
             self.refresh_all()
 
         popup = editar_registro("Retiro del fondo", campos, guardar, valores,
                                 texto_boton="Retirar")
         if popup is not None:
             popup.title = 'Retiro'
-            popup.size_hint = (0.94, 0.42)
+            popup.size_hint = (0.94, 0.55)
         return popup
 
     def delete_item(self, tid):
@@ -2603,8 +2633,10 @@ def _calcular_ganancias_mensuales(mensuales):
 # Ingreso bruto de la cuenta que mueve el negocio (lo que entra por viajes y
 # otros ingresos) y egreso real (los gastos registrados mas la comision que
 # se queda la app, que nunca se gasta pero tampoco es ganancia).
-# El balance de esta tabla da exactamente lo mismo que SQL_GANANCIA_MES:
-# aca se ve de donde sale, separando cuanto entra de cuanto sale.
+# Aca entran tambien los Retiros del fondo: es plata que salio de la caja,
+# asi el balance del contable cuadra con el Saldo de Ahorro InDrive.
+# Por lo mismo ya NO da lo mismo que SQL_GANANCIA_MES: la ganancia mide el
+# negocio (sin retiros) y el contable mide la caja (con retiros).
 SQL_CONTABLE_MES = """
     SELECT strftime('%Y-%m', fecha) as mes,
            SUM(CASE WHEN tipo = 'Ingreso' THEN monto ELSE 0 END) as ingresos,
@@ -2613,7 +2645,6 @@ SQL_CONTABLE_MES = """
                         THEN COALESCE(comision, 0) ELSE 0 END) as egresos
     FROM transacciones
     WHERE cuenta = 'Ahorro InDrive'
-      AND categoria != 'Retiro'
     GROUP BY mes
     ORDER BY mes DESC
     LIMIT 12
@@ -2622,7 +2653,8 @@ SQL_CONTABLE_MES = """
 
 # Egresos desarmados por rubro y mes, para decir "en que se va la plata".
 # Las comisiones de la app van en su propio rubro: no son un gasto del
-# rubro donde se registro el viaje.
+# rubro donde se registro el viaje. Los retiros salen con su propio
+# rubro ('Retiros') para que se vea la plata que saco el dueno.
 SQL_EGRESOS_RUBRO = """
     SELECT strftime('%Y-%m', fecha) as mes,
            CASE WHEN tipo = 'Ingreso' THEN 'Comisiones InDrive'
@@ -2631,7 +2663,6 @@ SQL_EGRESOS_RUBRO = """
                     ELSE COALESCE(comision, 0) END) as egreso
     FROM transacciones
     WHERE cuenta = 'Ahorro InDrive'
-      AND categoria != 'Retiro'
       AND (tipo = 'Gasto' OR COALESCE(comision, 0) > 0)
     GROUP BY mes, rubro
     """
@@ -2642,6 +2673,7 @@ SQL_EGRESOS_RUBRO = """
 RUBROS_EGRESO = {
     'Uso del Carro': 'Aporte al carro',
     'Viaje InDrive': 'Comisiones InDrive',
+    'Retiro': 'Retiros',
 }
 
 
@@ -3101,6 +3133,17 @@ class CalendarScreen(Screen):
             GROUP BY fecha
         """, (mes_str + '%',))
         profit_map = {row[0]: row[1] for row in cur.fetchall()}
+
+        # Dias con retiro: la plata salio de la caja sin que hubiera un
+        # gasto del negocio, asi que el dia se marca aparte.
+        cur.execute("""
+            SELECT fecha, SUM(monto)
+            FROM transacciones
+            WHERE fecha LIKE ? AND cuenta = 'Ahorro InDrive'
+              AND categoria = 'Retiro'
+            GROUP BY fecha
+        """, (mes_str + '%',))
+        retiros_map = {row[0]: row[1] for row in cur.fetchall()}
         conn.close()
 
         first_weekday = first_day.weekday()
@@ -3115,18 +3158,35 @@ class CalendarScreen(Screen):
             is_today = (date_obj.date() == today.date())
 
             if date_str not in profit_map:
-                bg = [0.07, 0.65, 0.60, 0.25] if is_today else [0.98, 0.98, 0.99, 0.9]
-                fc = [0.07, 0.45, 0.40, 1] if is_today else [0.08, 0.08, 0.09, 0.9]
-                btn = Button(
-                    text=f"{day}",
-                    size_hint_y=None,
-                    height='60dp',
-                    background_normal='',
-                    background_color=bg,
-                    color=fc,
-                    font_size='14sp',
-                    bold=is_today
-                )
+                if date_str in retiros_map:
+                    # Dia con retiro y nada mas: sin ganancia que mostrar,
+                    # pero salt a la vista que la plata salio del fondo.
+                    btn = Button(
+                        text=f"{day}\n$0.00",
+                        size_hint_y=None,
+                        height='60dp',
+                        background_normal='',
+                        background_color=[0.95, 0.60, 0.15, 0.85],
+                        color=[1, 1, 1, 1],
+                        font_size='11sp',
+                        bold=True,
+                        halign='center',
+                        valign='middle'
+                    )
+                    btn.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
+                else:
+                    bg = [0.07, 0.65, 0.60, 0.25] if is_today else [0.98, 0.98, 0.99, 0.9]
+                    fc = [0.07, 0.45, 0.40, 1] if is_today else [0.08, 0.08, 0.09, 0.9]
+                    btn = Button(
+                        text=f"{day}",
+                        size_hint_y=None,
+                        height='60dp',
+                        background_normal='',
+                        background_color=bg,
+                        color=fc,
+                        font_size='14sp',
+                        bold=is_today
+                    )
             else:
                 profit = profit_map[date_str]
                 if profit >= 0:
@@ -3454,21 +3514,49 @@ class ExpenseMixItem(BoxLayout):
         self.k_barra.pos = (self.x + 6, y)
 
 
-def show_day_details(date_str):
+def _dia_detalle(date_str):
+    """Movimientos del dia para el popup de detalle.
+
+    Devuelve (filas, totales). filas: [(tipo, categoria, monto, comision,
+    descripcion, es_retiro)] y totales: bruto, comision, gastos y retiros.
+    Los retiros NO entran en gastos (no son un gasto del negocio) pero se
+    cuentan aparte para poder mostrarlos y auditarlos.
+    """
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
         SELECT tipo, categoria, monto, comision, descripcion
         FROM transacciones 
-        WHERE fecha=? AND cuenta='Ahorro InDrive' AND categoria != 'Retiro'
+        WHERE fecha=? AND cuenta='Ahorro InDrive'
         ORDER BY id DESC
     """, (date_str,))
     rows = cur.fetchall()
     conn.close()
 
-    total_ingresos_brutos = 0.0
-    total_comision = 0.0
-    total_gastos = 0.0
+    filas = []
+    bruto = comision = gastos = retiros = 0.0
+    for tipo, cat, monto, com, desc in rows:
+        es_retiro = (cat == 'Retiro')
+        if tipo == 'Ingreso':
+            bruto += monto
+            if cat == 'Viaje InDrive':
+                comision += com
+        elif es_retiro:
+            retiros += monto
+        else:
+            gastos += monto
+        filas.append((tipo, cat, monto, com, desc, es_retiro))
+    totales = {'bruto': bruto, 'comision': comision,
+               'gastos': gastos, 'retiros': retiros}
+    return filas, totales
+
+
+def show_day_details(date_str):
+    rows, totales = _dia_detalle(date_str)
+    total_ingresos_brutos = totales['bruto']
+    total_comision = totales['comision']
+    total_gastos = totales['gastos']
+    total_retiros = totales['retiros']
     
     detail_layout = BoxLayout(orientation='vertical', spacing=10, padding=12)
     
@@ -3489,25 +3577,29 @@ def show_day_details(date_str):
         lbl_empty.bind(size=lambda inst, val: setattr(inst, 'text_size', val))
         list_layout.add_widget(lbl_empty)
     else:
-        for tipo, cat, monto, com, desc in rows:
+        for tipo, cat, monto, com, desc, es_retiro in rows:
+            alto_lbl, alto_card = '40dp', '52dp'
             if tipo == 'Ingreso':
                 if cat == 'Viaje InDrive':
-                    total_ingresos_brutos += monto
-                    total_comision += com
                     net_trip = monto - com
                     text = f"  [b]Viaje InDrive:[/b]\n      Neto: [color=12806C]+${net_trip:,.2f}[/color] (Bruto: ${monto:,.2f} | Com: -${com:,.2f})"
                 else:
-                    total_ingresos_brutos += monto
                     text = f"  [b]{cat}:[/b]\n      +${monto:,.2f} - {desc}"
+            elif es_retiro:
+                # Se muestra con su descripcion y el sello de que no entra
+                # al neto del dia: es plata que salio del fondo.
+                alto_lbl, alto_card = '56dp', '68dp'
+                text = (f"  [b]Retiro:[/b]\n"
+                        f"      [color=F29926]-${monto:,.2f}[/color] - {desc}\n"
+                        f"      [color=6B7280]no cuenta en la ganancia del día[/color]")
             else:
-                total_gastos += monto
                 text = f"  [b]{cat}:[/b]\n      [color=E6484B]-${monto:,.2f}[/color] - {desc}"
                 
             lbl = Label(
                 text=text,
                 markup=True,
                 size_hint_y=None,
-                height='40dp',
+                height=alto_lbl,
                 halign='left',
                 valign='middle',
                 color=[0.08, 0.08, 0.09, 1],
@@ -3515,7 +3607,7 @@ def show_day_details(date_str):
             )
             lbl.bind(size=lambda inst, val: setattr(inst, 'text_size', (val[0], None)))
             
-            card = RoundedCard(size_hint_y=None, height='52dp', bg_color=[1, 1, 1, 1], padding=[8, 4])
+            card = RoundedCard(size_hint_y=None, height=alto_card, bg_color=[1, 1, 1, 1], padding=[8, 4])
             card.add_widget(lbl)
             list_layout.add_widget(card)
         
@@ -3525,18 +3617,23 @@ def show_day_details(date_str):
     neto_dia = (total_ingresos_brutos - total_comision) - total_gastos
     color_neto = "12806C" if neto_dia >= 0 else "E6484B"
     
+    linea_retiros = ""
+    if total_retiros > 0:
+        linea_retiros = f"Retiros (fuera del neto): -${total_retiros:,.2f}\n"
+
     summary_text = (
         f"[b]RESUMEN DEL DÍA[/b]\n"
         f"Ingresos Brutos: ${total_ingresos_brutos:,.2f}\n"
         f"Comisiones InDrive: -${total_comision:,.2f}\n"
         f"Gastos / Egresos: -${total_gastos:,.2f}\n"
+        f"{linea_retiros}"
         f"-----------------------------------------\n"
         f"AHORRO NETO: [color={color_neto}][b]${neto_dia:,.2f}[/b][/color]"
     )
     
     summary_card = RoundedCard(
         size_hint_y=None,
-        height='120dp',
+        height='142dp' if total_retiros > 0 else '120dp',
         bg_color=[1, 1, 1, 1],
         padding=[12, 10]
     )
