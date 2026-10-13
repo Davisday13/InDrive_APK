@@ -823,15 +823,29 @@ ScreenManager:
                 bold: True
                 color: 0.08, 0.08, 0.09, 1
 
-        RoundedCard:
+        BoxLayout:
             size_hint_y: None
             height: '65dp'
-            bg_color: [1, 1, 1, 1]
-            Label:
-                text: "Saldo: " + root.balance_ahorro
-                font_size: '18sp'
+            spacing: 8
+            RoundedCard:
+                size_hint_y: None
+                height: '65dp'
+                bg_color: [1, 1, 1, 1]
+                Label:
+                    text: "Saldo: " + root.balance_ahorro
+                    font_size: '18sp'
+                    bold: True
+                    color: 0.07, 0.65, 0.60, 1
+            Button:
+                text: "Retiro"
+                size_hint_x: None
+                width: '105dp'
+                font_size: '14sp'
                 bold: True
-                color: 0.07, 0.65, 0.60, 1
+                background_normal: ''
+                background_color: [0.95, 0.65, 0.15, 1]
+                color: 1, 1, 1, 1
+                on_press: root.abrir_retiro()
 
         BoxLayout:
             size_hint_y: None
@@ -2276,6 +2290,47 @@ class AhorroScreen(Screen):
         self.txt_monto.text = ""
         self.txt_desc.text = ""
 
+    def abrir_retiro(self, *args):
+        """Popup para sacar plata del fondo para uso personal.
+
+        Se guarda como Gasto con categoria 'Retiro': baja el Saldo, pero
+        las estadisticas lo dejan afuera, asi un dia sin trabajar no
+        aparece en rojo ni arruina el mes.
+        """
+        campos = [
+            {'id': 'fecha', 'label': 'Fecha', 'tipo': 'fecha'},
+            {'id': 'monto', 'label': 'Monto a retirar', 'tipo': 'numero',
+             'hint': '0.00'},
+        ]
+        valores = {'fecha': hoy_corto(), 'monto': ''}
+
+        def guardar(v):
+            fecha_db = v.get('fecha') or ''
+            if not fecha_db:
+                mostrar_error("La fecha no puede quedar vacia.")
+                return
+            monto = _num(v.get('monto'), 0)
+            if monto <= 0:
+                mostrar_error("Ingresa el monto a retirar.\nEjemplo: 25.00")
+                return
+            conn = get_db_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO transacciones (fecha, cuenta, tipo, monto,"
+                " categoria, descripcion)"
+                " VALUES (?, 'Ahorro InDrive', 'Gasto', ?, 'Retiro',"
+                " 'Retiro de fondo')",
+                (fecha_db, monto))
+            close_db(conn)
+            self.refresh_all()
+
+        popup = editar_registro("Retiro del fondo", campos, guardar, valores,
+                                texto_boton="Retirar")
+        if popup is not None:
+            popup.title = 'Retiro'
+            popup.size_hint = (0.94, 0.42)
+        return popup
+
     def delete_item(self, tid):
         conn = get_db_connection()
         cur = conn.cursor()
@@ -2517,6 +2572,7 @@ SQL_GANANCIA_MES = """
                     ELSE -monto END) as ganancia
     FROM transacciones
     WHERE cuenta = 'Ahorro InDrive'
+      AND categoria != 'Retiro'
     GROUP BY mes
     ORDER BY mes DESC
     LIMIT 12
@@ -2557,6 +2613,7 @@ SQL_CONTABLE_MES = """
                         THEN COALESCE(comision, 0) ELSE 0 END) as egresos
     FROM transacciones
     WHERE cuenta = 'Ahorro InDrive'
+      AND categoria != 'Retiro'
     GROUP BY mes
     ORDER BY mes DESC
     LIMIT 12
@@ -2574,9 +2631,10 @@ SQL_EGRESOS_RUBRO = """
                     ELSE COALESCE(comision, 0) END) as egreso
     FROM transacciones
     WHERE cuenta = 'Ahorro InDrive'
+      AND categoria != 'Retiro'
       AND (tipo = 'Gasto' OR COALESCE(comision, 0) > 0)
     GROUP BY mes, rubro
-"""
+    """
 
 
 # El nombre que se ve en pantalla: 'Uso del Carro' es el aporte al fondo del
@@ -2839,7 +2897,7 @@ class StatsScreen(Screen):
                             WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Gasto' THEN -monto ELSE 0 END) as ahorro,
                    SUM(CASE WHEN cuenta = 'Uso del Carro' AND tipo = 'Ingreso' THEN monto 
                             WHEN cuenta = 'Uso del Carro' AND tipo = 'Gasto' THEN -monto ELSE 0 END) as carro
-            FROM (SELECT strftime('%Y-%m', fecha) as mes, cuenta, tipo, monto, comision, categoria FROM transacciones)
+            FROM (SELECT strftime('%Y-%m', fecha) as mes, cuenta, tipo, monto, comision, categoria FROM transacciones WHERE categoria != 'Retiro')
             GROUP BY mes ORDER BY mes DESC LIMIT 6
         """)
         rows = cur.fetchall()
@@ -2867,7 +2925,8 @@ class StatsScreen(Screen):
                    SUM(CASE WHEN categoria = 'Combustible' THEN monto ELSE 0 END) as gas,
                    SUM(CASE WHEN categoria = 'Uso del Carro' THEN monto ELSE 0 END) as uso,
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km_cliente ELSE 0 END) as km_c
-            FROM transacciones WHERE cuenta = 'Ahorro InDrive' GROUP BY fecha ORDER BY fecha DESC LIMIT 15
+            FROM transacciones WHERE cuenta = 'Ahorro InDrive' AND categoria != 'Retiro'
+            GROUP BY fecha ORDER BY fecha DESC LIMIT 15
         """)
         for row in cur.fetchall():
             daily.add_widget(DailyProfitItem(*row))
@@ -3038,7 +3097,7 @@ class CalendarScreen(Screen):
                         ELSE 0
                    END) as profit
             FROM transacciones
-            WHERE fecha LIKE ?
+            WHERE fecha LIKE ? AND categoria != 'Retiro'
             GROUP BY fecha
         """, (mes_str + '%',))
         profit_map = {row[0]: row[1] for row in cur.fetchall()}
@@ -3401,7 +3460,7 @@ def show_day_details(date_str):
     cur.execute("""
         SELECT tipo, categoria, monto, comision, descripcion
         FROM transacciones 
-        WHERE fecha=? AND cuenta='Ahorro InDrive' 
+        WHERE fecha=? AND cuenta='Ahorro InDrive' AND categoria != 'Retiro'
         ORDER BY id DESC
     """, (date_str,))
     rows = cur.fetchall()
