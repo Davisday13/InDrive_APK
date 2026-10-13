@@ -4588,6 +4588,12 @@ class InDriveApp(App):
         sm.add_widget(CalendarScreen(name='calendar'))
         sm.current = 'dashboard' if cloud_db.hay_sesion() else 'login'
 
+        # Historial real de pantallas para el boton Atras: sin esto el
+        # Atras caminaba una lista fija de nombres y saltaba a pantallas
+        # que el usuario nunca habia abierto (ahorro -> carro -> stats...).
+        self._historial_pantallas = [sm.current]
+        sm.bind(current=self._registrar_pantalla)
+
         if descargar:
             Clock.schedule_once(lambda dt: self._descargar_al_iniciar(), 1.0)
         elif cloud_db.hay_sesion():
@@ -4668,6 +4674,36 @@ class InDriveApp(App):
         self._handle_back()
         return True
 
+    def _registrar_pantalla(self, sm, nombre):
+        """Anota de donde vino el usuario cada vez que cambia de pantalla.
+
+        El Atras usa esta pila para volver al lugar real de origen y no
+        a una lista fija de pantallas. Si el cambio lo dispara el propio
+        Atras, la pila se recorta hasta la pantalla de destino: si no,
+        quedarian arriba pantallas que ya se abandonaron y el siguiente
+        Atras volveria a un lugar viejo.
+        """
+        pila = self._historial_pantallas
+        if getattr(self, '_atras_en_curso', False):
+            while pila and pila[-1] != nombre:
+                pila.pop()
+            if not pila:
+                pila.append(nombre)
+            return
+        if pila and pila[-1] == nombre:
+            return
+        pila.append(nombre)
+        if len(pila) > 20:
+            del pila[0]
+
+    def _pantalla_anterior(self):
+        """Ultima pantalla visitada que no sea la actual (None si no hay)."""
+        pila = self._historial_pantallas
+        actual = self.root.current
+        while pila and pila[-1] == actual:
+            pila.pop()
+        return pila[-1] if pila else None
+
     def _handle_back(self):
         from kivy.uix.popup import Popup
         from kivy.uix.label import Label as KivyLabel
@@ -4700,18 +4736,27 @@ class InDriveApp(App):
             popup_ref[0].open()
         else:
             if current == 'casa':
+                # Casa tiene vistas internas (inicio/clientes/cliente):
+                # su propio _volver_atras decide si cambia de vista o
+                # vuelve al dashboard.
                 casa_screen = sm.get_screen('casa')
-                casa_screen._volver_atras()
+                self._atras_en_curso = True
+                try:
+                    casa_screen._volver_atras()
+                finally:
+                    self._atras_en_curso = False
             else:
-                screen_names = ['calendar', 'stats', 'carro', 'ahorro', 'casa']
-                if current in screen_names:
-                    idx = screen_names.index(current)
-                    if idx > 0:
-                        sm.current = screen_names[idx - 1]
-                    else:
-                        sm.current = 'dashboard'
-                else:
-                    sm.current = 'dashboard'
+                # Vuelve a la pantalla de donde el usuario realmente vino.
+                # Antes se caminaba una lista fija (carro -> stats ->
+                # calendar...) y el Atras saltaba por pantallas que nunca
+                # se abrieron. Si no hay historia (llego por deeplink o
+                # arranco directo) se va al dashboard.
+                self._atras_en_curso = True
+                try:
+                    anterior = self._pantalla_anterior()
+                    sm.current = anterior if anterior else 'dashboard'
+                finally:
+                    self._atras_en_curso = False
 
     def on_resume(self):
         # Volvio de los ajustes de permiso (o de otra app): si estabamos
