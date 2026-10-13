@@ -2162,6 +2162,24 @@ class AhorroScreen(Screen):
             container.add_widget(layout)
             container.add_widget(btn_save)
 
+        Clock.schedule_once(self._ajustar_form_container, 0)
+
+    def _ajustar_form_container(self, *args):
+        """form_container mide 240dp fijos en el KV.
+
+        Con el campo Km InDrive el formulario pide mas alto y la ultima
+        fila salia cortada, asi que el contenedor se ajusta a lo que
+        pida el GridLayout (con piso en 240 y techo en 420).
+        """
+        cont = self.ids.get('form_container')
+        if cont is None or len(cont.children) < 2:
+            return
+        grid, btn = cont.children[1], cont.children[0]
+        alto_grid = getattr(grid, 'minimum_height', 0) or 0
+        if alto_grid <= 0:
+            return
+        cont.height = max(240, min(420, alto_grid + btn.height + 24))
+
     def refresh_all(self):
         conn = get_db_connection()
         cursor = conn.cursor()
