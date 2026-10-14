@@ -2183,8 +2183,6 @@ class AhorroScreen(Screen):
             layout.add_widget(self.txt_km_cliente)
             btn_save = AccentButton(text="Guardar Viaje", size_hint_y=None, height='35dp')
             btn_save.bind(on_press=self.save_viaje)
-            container.add_widget(layout)
-            container.add_widget(btn_save)
         else:
             layout = GridLayout(cols=2, spacing=6, size_hint_y=None)
             layout.bind(minimum_height=layout.setter('height'))
@@ -2214,34 +2212,54 @@ class AhorroScreen(Screen):
             layout.add_widget(self.txt_desc)
             btn_save = AccentButton(text="Guardar", size_hint_y=None, height='35dp')
             btn_save.bind(on_press=self.save_otro)
-            container.add_widget(layout)
-            container.add_widget(btn_save)
+
+        # La grilla vive dentro de un ScrollView: si el formulario no
+        # cabe en la pantalla (Viaje es largo), hace scroll interno en
+        # vez de crecer y tapar las pestanas Viaje/Otro.
+        scroll = ScrollView(size_hint_y=None, do_scroll_x=False,
+                            bar_width='6dp')
+        scroll.add_widget(layout)
+        container.add_widget(scroll)
+        container.add_widget(btn_save)
 
         # El contenedor se redimensiona cada vez que la grilla cambia de
         # alto, ademas de dos reintentos: en el telefono la maqueta llega
         # despues y con un solo schedule el formulario quedaba a 240dp y
         # la fila Km InDrive se comia el boton Guardar.
-        grid = container.children[1]
-        grid.bind(minimum_height=self._ajustar_form_container)
+        layout.bind(minimum_height=self._ajustar_form_container)
         self._intentos_form = 0
         self._ajustar_form_container()
         Clock.schedule_once(self._ajustar_form_container, 0)
         Clock.schedule_once(self._ajustar_form_container, 0.25)
 
-    def _ajustar_form_container(self, *args):
-        """form_container mide 240dp fijos en el KV.
+    def _alto_dispo_form(self):
+        """Cuanto alto maximo puede ocupar form_container sin tapar
+        nada de lo demas: pantalla menos header, saldo, pestanas,
+        label, paddings, spacings y un minimo para la lista."""
+        cont = self.ids.get('form_container')
+        raiz = cont.parent if cont is not None else None
+        if raiz is None or raiz.height <= 0:
+            return 420
+        # Hijos fijos del BoxLayout raiz: header(40) + saldo(65) +
+        # pestanas(35) + label(20) = 160; paddings 12*2=24;
+        # spacings 10*5=50; lista minima 80.
+        fijos = 160 + 24 + 50 + 80
+        return max(200, raiz.height - fijos)
 
-        Con el campo Km InDrive el formulario pide mas alto y la ultima
-        fila salia cortada (o metida debajo del boton Guardar), asi que
-        el contenedor se ajusta a lo que pida el GridLayout (con piso en
-        240 y techo en 420). Se llama tambien desde el bind de
-        minimum_height y con reintentos, porque en el telefono la grilla
-        termina de maquetar despues del primer frame.
+    def _ajustar_form_container(self, *args):
+        """Ajusta form_container al alto del ScrollView + boton Guardar.
+
+        El ScrollView recorta la grilla si no cabe, asi que el
+        contenedor NUNCA crece mas alla del espacio disponible y las
+        pestanas Viaje/Otro quedan siempre libres arriba.
         """
         cont = self.ids.get('form_container')
         if cont is None or len(cont.children) < 2:
             return
-        grid, btn = cont.children[1], cont.children[0]
+        scroll, btn = cont.children[1], cont.children[0]
+        grid = scroll.children[0] if scroll.children else None
+        if grid is None:
+            return
         alto_grid = max(getattr(grid, 'minimum_height', 0) or 0,
                         getattr(grid, 'height', 0) or 0)
         if alto_grid <= 0:
@@ -2251,12 +2269,18 @@ class AhorroScreen(Screen):
                 Clock.schedule_once(self._ajustar_form_container, 0.15)
             return
         self._intentos_form = 0
-        cont.height = max(240, min(420, alto_grid + btn.height + 24))
+        alto_max = self._alto_dispo_form()
+        pad = (cont.padding[1] + cont.padding[3]
+               if isinstance(cont.padding, (list, tuple))
+               else cont.padding * 2)
+        alto_nuevo = min(alto_max, alto_grid + btn.height + pad + cont.spacing)
+        alto_nuevo = max(200, alto_nuevo)
+        cont.height = alto_nuevo
+        # El scroll ocupa todo menos el boton y el padding.
+        scroll.height = max(0, alto_nuevo - btn.height - pad - cont.spacing)
         # BoxLayout no se vuelve a medir solo cuando cambia la altura de
-        # un hijo. _trigger_layout solo agenda para el siguiente frame y
-        # en el telefono eso llegaba tarde: el formulario crecia hacia
-        # arriba y se montaba en las pestanas Viaje/Otro. do_layout()
-        # fuerza el re-acomodo AHORA MISMO, en el mismo tick.
+        # un hijo: do_layout() fuerza el re-acomodo AHORA MISMO para que
+        # las pestanas nunca queden debajo del contenedor.
         padre = cont.parent
         if padre is not None and hasattr(padre, 'do_layout'):
             padre.do_layout()

@@ -106,6 +106,9 @@ def _forzar_layout_viejo(scr):
     las secciones con el contenedor en 240dp (el alto del KV)."""
     cont = scr.ids.form_container
     cont.height = 240
+    for w in cont.children:
+        if hasattr(w, 'height'):
+            w.height = min(w.height, 160) if w.height else w.height
     _raiz(scr).do_layout()
 
 
@@ -116,7 +119,8 @@ def medir(nombre):
         "%s: form_container vacio o incompleto" % nombre)
     if cont is None or len(cont.children) < 2:
         return
-    grid, btn = cont.children[1], cont.children[0]
+    scroll, btn = cont.children[1], cont.children[0]
+    grid = scroll.children[0] if scroll.children else None
     tabs = scr.ids.tab_viaje_btn.parent
 
     # 1) el contenedor NO se puede montar en la fila de pestanas
@@ -136,34 +140,29 @@ def medir(nombre):
         "%s: %d widget(es) del formulario tapan la pestana Otro"
         % (nombre, len(pisada)))
 
-    # 3) internos: grilla y boton Guardar dentro del contenedor
+    # 3) internos: scroll y boton Guardar dentro del contenedor
     pad = cont.padding[0] + cont.padding[1]
-    chk(grid.height >= (grid.minimum_height or 0) - 1,
-        "%s: la grilla esta recortada (%.0f < %.0f)"
-        % (nombre, grid.height, grid.minimum_height or 0))
-    chk(cont.height >= grid.height + btn.height + pad + cont.spacing - 1,
-        "%s: el contenedor no alcanza (%.0f) para grilla %.0f + boton %.0f"
-        % (nombre, cont.height, grid.height, btn.height))
-    chk(btn.top <= grid.y + 1,
+    chk(cont.height >= scroll.height + btn.height + pad + cont.spacing - 1,
+        "%s: el contenedor no alcanza (%.0f) para scroll %.0f + boton %.0f"
+        % (nombre, cont.height, scroll.height, btn.height))
+    chk(btn.top <= scroll.y + 1,
         "%s: el boton Guardar se cruza con el formulario "
-        "(boton top=%.0f, grilla y=%.0f)" % (nombre, btn.top, grid.y))
+        "(boton top=%.0f, scroll y=%.0f)" % (nombre, btn.top, scroll.y))
     chk(btn.y >= cont.y + cont.padding[1] - 1,
         "%s: el boton Guardar se sale del contenedor "
         "(boton y=%.0f, contenedor y=%.0f)" % (nombre, btn.y, cont.y))
 
-    filas = list(grid.children)
-    chk(len(filas) >= 10,
-        "%s: faltan filas en la grilla (%d widgets)" % (nombre, len(filas)))
-    malas = [w for w in filas if w.y < grid.y - 1 or w.top > grid.top + 1]
-    chk(not malas,
-        "%s: %d fila(s) fuera de la grilla" % (nombre, len(malas)))
-    pisadas = [w for w in filas if w.top > btn.y + 1 and w.y < btn.top - 1]
-    chk(not pisadas,
-        "%s: el boton Guardar tapa %d fila(s)" % (nombre, len(pisadas)))
+    if grid is not None:
+        filas = list(grid.children)
+        chk(len(filas) >= 10,
+            "%s: faltan filas en la grilla (%d widgets)" % (nombre, len(filas)))
+    else:
+        filas = []
+        chk(False, "%s: la grilla no esta dentro del scroll" % nombre)
 
-    print("%-18s cont=%.0f..%.0f tabs=%.0f..%.0f grilla=%.0f boton=%.0f "
+    print("%-18s cont=%.0f..%.0f tabs=%.0f..%.0f scroll=%.0f boton=%.0f "
           "filas=%d" % (nombre, cont.y, cont.top, tabs.y, tabs.top,
-                        grid.height, btn.height, len(filas)))
+                        scroll.height, btn.height, len(filas)))
 
 
 def _foto(nombre):
