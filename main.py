@@ -2252,6 +2252,13 @@ class AhorroScreen(Screen):
             return
         self._intentos_form = 0
         cont.height = max(240, min(420, alto_grid + btn.height + 24))
+        # BoxLayout no se vuelve a medir solo cuando cambia la altura de
+        # un hijo: sin este empujon el contenedor crecia hacia arriba y
+        # se montaba en las pestanas Viaje/Otro (el telefono lo mostraba
+        # asi el 13/10).
+        padre = cont.parent
+        if padre is not None and hasattr(padre, '_trigger_layout'):
+            padre._trigger_layout()
 
     def refresh_all(self):
         conn = get_db_connection()
