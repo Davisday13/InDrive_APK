@@ -10,6 +10,9 @@ re-mide solo cuando cambia la altura de un hijo, asi que al ajustar el
 contenedor hay que pedirle al padre que vuelva a acomodar.
 
 No toca la nube ni la base real: trabaja en un directorio temporal.
+
+Tambien cubre que el campo Km InDrive (cliente) se puede guardar solo,
+sin bruto ni gasolina, para poder hacer la comparativa Km InDrive/real.
 """
 import os
 import shutil
@@ -202,6 +205,28 @@ def disparar(dt):
     def paso6():
         medir("viaje otra vez")
         _foto("3_viaje_vuelta.png")
+
+    def paso7():
+        # Regresion: guardar SOLO el Km InDrive (cliente), sin bruto ni
+        # gasolina, tiene que dejar cargar la sesion para que la
+        # comparativa Km InDrive/real se pueda armar.
+        scr = _scr()
+        scr.txt_km_cliente.text = "12.5"
+        scr.save_viaje()
+
+    def paso8():
+        conn = sqlite3.connect(main.writable_db_path)
+        filas = conn.execute(
+            "SELECT monto, km, km_cliente FROM transacciones"
+            " WHERE categoria = 'Viaje InDrive' AND km_cliente = 12.5"
+        ).fetchall()
+        conn.close()
+        chk(filas == [(0.0, 0.0, 12.5)],
+            "solo con Km InDrive la sesion debia quedar en $0 con 12.5 km"
+            " y quedo %r" % (filas,))
+        popups = [w for w in Window.children if isinstance(w, main.Popup)]
+        chk(not popups,
+            "solo con Km InDrive no debia salir el popup de campo requerido")
         app.stop()
 
     Clock.schedule_once(lambda dt: paso1(), 2.0)
@@ -209,7 +234,9 @@ def disparar(dt):
     Clock.schedule_once(lambda dt: paso3(), 4.0)
     Clock.schedule_once(lambda dt: paso4(), 5.5)
     Clock.schedule_once(lambda dt: paso5(), 6.5)
-    Clock.schedule_once(lambda dt: paso6(), 8.0)
+    Clock.schedule_once(lambda dt: paso6(), 7.5)
+    Clock.schedule_once(lambda dt: paso7(), 8.5)
+    Clock.schedule_once(lambda dt: paso8(), 9.5)
 
 
 Clock.schedule_once(disparar, 2.5)

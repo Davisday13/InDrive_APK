@@ -2310,8 +2310,14 @@ class AhorroScreen(Screen):
                 fecha_v = fd
             display_monto = (monto - com) if cat == "Viaje InDrive" else monto
             if cat == "Viaje InDrive":
-                display_desc = (f"{desc} (Viajes: {vj} · Km {float(km_c or 0):g}/{float(km or 0):g})"
-                                if km_c else f"{desc} (Viajes: {vj})")
+                if km_c and km:
+                    extra = "Viajes: %d · Km %g/%g" % (int(vj or 0),
+                                                       float(km_c), float(km))
+                elif km_c:
+                    extra = "Km app %g" % float(km_c)
+                else:
+                    extra = "Viajes: %d" % int(vj or 0)
+                display_desc = f"{desc} ({extra})"
             else:
                 display_desc = desc
             item = TransactionItem(tid, fecha_v, tp, cat, display_monto, display_desc,
@@ -2337,14 +2343,19 @@ class AhorroScreen(Screen):
             mostrar_error("Los campos numéricos deben ser números válidos.\nEjemplo: 25.50")
             return
 
-        if bruto == 0 and gasolina == 0 and uso_carro == 0:
-            mostrar_error("Ingresa al menos uno de estos campos:\n- Bruto del viaje\n- Gasolina\n- Aporte Carro")
+        # Se puede guardar solo con los Km InDrive (cliente), sin bruto
+        # ni gasolina: si no, la comparativa Km InDrive/real nunca se
+        # puede cargar cuando el dato que falta es la plata del viaje.
+        hay_plata = bruto > 0 or gasolina > 0 or uso_carro > 0
+        hay_km = viajes > 0 or km > 0 or km_cliente > 0
+        if not hay_plata and not hay_km:
+            mostrar_error("Ingresa al menos uno de estos campos:\n- Bruto del viaje\n- Gasolina\n- Aporte Carro\n- Viajes/KM real\n- Km InDrive (cliente)")
             return
 
         conn = get_db_connection()
         cur = conn.cursor()
 
-        if bruto > 0:
+        if bruto > 0 or hay_km:
             cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, comision, viajes, km, categoria, descripcion, km_cliente) VALUES (?, 'Ahorro InDrive', 'Ingreso', ?, ?, ?, ?, 'Viaje InDrive', 'Sesión', ?)", (fecha_db, bruto, comision, viajes, km, km_cliente))
         if gasolina > 0:
             cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, categoria, descripcion) VALUES (?, 'Ahorro InDrive', 'Gasto', ?, 'Combustible', 'Gasolina')", (fecha_db, gasolina))
@@ -2944,7 +2955,10 @@ class StatsScreen(Screen):
             _set('lbl_kpi_precio', "Sin datos", gris)
 
         if km_kc > 0 and km_c > 0:
-            muerto = 1 - (km_c / km_kc)
+            # Si el Km InDrive cargado solo supera al real (fila guardada
+            # sin Km real) el resultado seria negativo: los km muertos no
+            # pueden ser menos de cero.
+            muerto = max(0.0, 1 - (km_c / km_kc))
             col = verde if muerto <= 0.40 else (ambar if muerto <= 0.55 else rojo)
             _set('lbl_kpi_muerto', f"{muerto * 100:.0f}%", col)
         else:
@@ -3344,6 +3358,9 @@ class DailyProfitItem(BoxLayout):
                 sub_text = f"{viajes} vj | {float(km_cliente):g}/{float(km or 0):g} km"
             else:
                 sub_text = f"{viajes} vj | {km:,.0f} km"
+        elif km_cliente:
+            # Dia cargado solo con los Km InDrive (sin plata ni viajes).
+            sub_text = f"{float(km_cliente):g} km app"
         else:
             sub_text = "Manual"
         lbl_sub = Label(text=sub_text, font_size='11sp', color=[0.3, 0.3, 0.35, 1], halign='left', valign='middle')
