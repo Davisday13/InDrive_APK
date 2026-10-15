@@ -3085,7 +3085,10 @@ class StatsScreen(Screen):
 
         Si falta datos la tarjeta queda en gris: una meta no se presume
         cumplida con la nada. neto = bruto menos comision, km = km reales
-        del auto, km_c = km que el cliente pago en inDrive.
+        del auto, km_c = km que el cliente pago en inDrive. neto_kc y
+        km_kc son esos mismos numeros pero SOLO de los dias que tienen
+        Km InDrive: el Km InDrive se empareja con el km real del MISMO
+        dia aunque vengan de dos guardados distintos.
         """
         verde, ambar, rojo, gris = PRIMARY, [0.95, 0.65, 0.15, 1], NEG, TEXT_SECONDARY
 
@@ -3218,12 +3221,25 @@ class StatsScreen(Screen):
             SELECT SUM(CASE WHEN categoria = 'Viaje InDrive' THEN monto - comision ELSE 0 END),
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END),
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km_cliente ELSE 0 END),
-                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END),
-                   SUM(CASE WHEN categoria = 'Viaje InDrive' AND km_cliente > 0 THEN monto - comision ELSE 0 END),
-                   SUM(CASE WHEN categoria = 'Viaje InDrive' AND km_cliente > 0 THEN km ELSE 0 END)
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END)
             FROM transacciones WHERE cuenta = 'Ahorro InDrive'
         """)
-        neto, km, km_c, viajes, neto_kc, km_kc = [(v or 0) for v in cur.fetchone()]
+        neto, km, km_c, viajes = [(v or 0) for v in cur.fetchone()]
+        # Pago app y Km muerto se emparejan POR DIA, no por fila: el Km
+        # InDrive puede llegar en un guardado aparte del km real del
+        # mismo dia (fila de solo-km o fila de plata chica). Mirando fila
+        # por fila esos km InDrive quedan contra un km real de OTRA fila
+        # y la comparativa sale al reves (732/387 y 0% de muerto).
+        cur.execute("""
+            SELECT SUM(neto_dia), SUM(km_dia) FROM (
+                SELECT SUM(monto - comision) AS neto_dia,
+                       SUM(km) AS km_dia
+                FROM transacciones
+                WHERE cuenta = 'Ahorro InDrive' AND categoria = 'Viaje InDrive'
+                GROUP BY fecha HAVING SUM(km_cliente) > 0
+            )
+        """)
+        neto_kc, km_kc = [(v or 0) for v in cur.fetchone()]
         self._pintar_kpis(neto, km, km_c, viajes, neto_kc, km_kc)
 
         # ¿Cuanto me queda de verdad? Bruto menos comision menos gasolina,

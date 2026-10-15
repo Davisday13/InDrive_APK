@@ -207,6 +207,58 @@ def main_test():
             "con 10.0 km/viaje debia salir rojo: %r"
             % (ids.lbl_kpi_kmviaje.color,))
 
+        # --------------------------------- km InDrive por dia, no fila ---
+        # El caso real del 13/10 del conductor: la sesion del dia tiene
+        # 145.4 km reales y los 86.9 km InDrive llegaron en un guardado
+        # aparte (fila de solo-km). Mirando por fila saldria 86.9 contra
+        # 0 km reales; por dia salen juntos.
+        tmp_dia, ruta_dia = _crear_base(DDL, [
+            ("2025-10-20", "Ahorro InDrive", "Ingreso", 45.8, 5.2,
+             18, 145.4, "Viaje InDrive", "Sesión", 0.0),
+            ("2025-10-20", "Ahorro InDrive", "Ingreso", 0.0, 0.0,
+             0, 0.0, "Viaje InDrive", "Sesión", 86.9),
+            ("2025-10-21", "Ahorro InDrive", "Ingreso", 30.0, 3.0,
+             5, 100.0, "Viaje InDrive", "Sesión", 20.0),
+        ])
+        _pintar(ruta_dia, pantalla)
+        chk(ids.lbl_kpi_comparativa.text == "107/245",
+            "por dia la comparativa debia dar 107/245 y dio %r"
+            % ids.lbl_kpi_comparativa.text)
+        chk(ids.lbl_kpi_muerto.text == "56%",
+            "por dia el km muerto debia dar 56%% y dio %r"
+            % ids.lbl_kpi_muerto.text)
+        chk(_mismo_color(ids.lbl_kpi_muerto.color, ROJO),
+            "con 56%% el km muerto debia salir rojo: %r"
+            % (ids.lbl_kpi_muerto.color,))
+        chk(ids.lbl_kpi_precio.text == "$0.63",
+            "por dia el precio debia dar $0.63 (67.60/106.9) y dio %r"
+            % ids.lbl_kpi_precio.text)
+        chk(_mismo_color(ids.lbl_kpi_precio.color, AMBAR),
+            "con 0.63 el precio debia salir ambar: %r"
+            % (ids.lbl_kpi_precio.color,))
+        chk(ids.lbl_efficiency.text == "$0.28/KM",
+            "el $/km real debia seguir contando todos los km: $0.28/KM"
+            " y dio %r" % ids.lbl_efficiency.text)
+
+        # Dia en que la app facturo MAS km de los reales (el 13/10 real):
+        # no puede haber km muerto negativo.
+        tmp_mal_dia, ruta_mal_dia = _crear_base(DDL, [
+            ("2025-10-22", "Ahorro InDrive", "Ingreso", 45.8, 5.2,
+             18, 145.4, "Viaje InDrive", "Sesión", 0.0),
+            ("2025-10-22", "Ahorro InDrive", "Ingreso", 0.0, 0.0,
+             0, 0.0, "Viaje InDrive", "Sesión", 154.0),
+        ])
+        _pintar(ruta_mal_dia, pantalla)
+        chk(ids.lbl_kpi_muerto.text == "0%",
+            "con mas km InDrive que reales el km muerto debia quedar en"
+            " 0%% y dio %r" % ids.lbl_kpi_muerto.text)
+        chk(_mismo_color(ids.lbl_kpi_muerto.color, VERDE),
+            "con 0%% de muerto la tarjeta debia salir verde: %r"
+            % (ids.lbl_kpi_muerto.color,))
+        chk(ids.lbl_kpi_comparativa.text == "154/145",
+            "la comparativa debia dar 154/145 y dio %r"
+            % ids.lbl_kpi_comparativa.text)
+
         # --------------------------------------------- sin datos ----------
         tmp_vacio, ruta_vacio = _crear_base(DDL, [])
         _pintar(ruta_vacio, pantalla)
