@@ -1133,7 +1133,7 @@ ScreenManager:
                 RoundedCard:
                     bg_color: [1, 1, 1, 1]
                     Label:
-                        text: "$/km Real (meta 0.45)"
+                        text: "Neto $/km real (0.45)"
                         font_size: '11sp'
                         color: 0.3, 0.3, 0.35, 1
                     Label:
@@ -1150,7 +1150,7 @@ ScreenManager:
                 RoundedCard:
                     bg_color: [1, 1, 1, 1]
                     Label:
-                        text: "Precio $/km (0.75)"
+                        text: "Pago app $/km (0.75)"
                         font_size: '11sp'
                         color: 0.3, 0.3, 0.35, 1
                     Label:
@@ -1200,6 +1200,138 @@ ScreenManager:
                         font_size: '16sp'
                         bold: True
                         color: 0.07, 0.65, 0.60, 1
+
+            RoundedCard:
+                id: rentabilidad_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 12]
+                spacing: 6
+
+                Label:
+                    text: "¿Qué me queda de verdad?"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '24dp'
+                Label:
+                    text: "De lo que cobré por manejar, menos comisión y gasolina"
+                    font_size: '10sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'left'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '14dp'
+                    text_size: self.width, None
+
+                GridLayout:
+                    cols: 2
+                    row_default_height: '24dp'
+                    row_force_default: True
+                    spacing: 4
+                    size_hint_y: None
+                    height: self.minimum_height
+                    Label:
+                        text: "Entró por viajes (bruto)"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    Label:
+                        id: lbl_rent_bruto
+                        text: "$0.00"
+                        font_size: '12sp'
+                        bold: True
+                        halign: 'right'
+                        valign: 'middle'
+                        text_size: self.size
+                        color: 0.08, 0.08, 0.09, 1
+                    Label:
+                        text: "Se llevó inDrive (comisión)"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    Label:
+                        id: lbl_rent_com
+                        text: "-$0.00"
+                        font_size: '12sp'
+                        bold: True
+                        halign: 'right'
+                        valign: 'middle'
+                        text_size: self.size
+                        color: 0.90, 0.30, 0.35, 1
+                    Label:
+                        text: "Se fue en gasolina"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    Label:
+                        id: lbl_rent_gas
+                        text: "-$0.00"
+                        font_size: '12sp'
+                        bold: True
+                        halign: 'right'
+                        valign: 'middle'
+                        text_size: self.size
+                        color: 0.90, 0.30, 0.35, 1
+                    Label:
+                        text: "Me quedó en mano"
+                        font_size: '11sp'
+                        color: 0.08, 0.08, 0.09, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        bold: True
+                        text_size: self.size
+                    Label:
+                        id: lbl_rent_neto
+                        text: "$0.00"
+                        font_size: '13sp'
+                        bold: True
+                        halign: 'right'
+                        valign: 'middle'
+                        text_size: self.size
+                        color: 0.07, 0.65, 0.60, 1
+
+                Label:
+                    id: lbl_rent_resumen
+                    text: "Sin datos"
+                    font_size: '12sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    halign: 'center'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '20dp'
+                    text_size: self.width, None
+
+                Label:
+                    id: lbl_rent_veredicto
+                    text: "Sin datos"
+                    font_size: '11sp'
+                    bold: True
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'center'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '32dp'
+                    text_size: self.width - 20, None
+
+                Label:
+                    text: "Neto $/km real = tus km · Pago app = los km de la app"
+                    font_size: '9sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'center'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '26dp'
+                    text_size: self.width, None
 
             RoundedCard:
                 id: monthly_profits_card
@@ -3002,6 +3134,64 @@ class StatsScreen(Screen):
         else:
             _set('lbl_kpi_comparativa', "Sin datos", gris)
 
+    def _pintar_rentabilidad(self, bruto, comision, gas, km, viajes, dias):
+        """Tarjeta '¿Qué me queda de verdad?'.
+
+        Responde la pregunta que las tarjetas de $/km no contestan solas:
+        cuanto ENTRO por manejar, cuanto se llevo inDrive, cuanto se fue
+        en gasolina y que SOBRA por km, por viaje y por dia para todo lo
+        demas del carro (llantas, aceite, seguro, tecnico-mecanica).
+        """
+        verde, ambar, rojo, gris = PRIMARY, [0.95, 0.65, 0.15, 1], NEG, TEXT_SECONDARY
+
+        def _set(id_lbl, texto, color=None):
+            lbl = self.ids.get(id_lbl)
+            if lbl is None:
+                return
+            lbl.text = texto
+            if color is not None:
+                lbl.color = list(color)
+
+        queda = bruto - comision - gas
+        _set('lbl_rent_bruto', "$%s" % format(bruto, ",.2f"))
+        _set('lbl_rent_com', ("-$%s" % format(comision, ",.2f"))
+             if comision > 0 else "$0.00",
+             rojo if comision > 0 else gris)
+        _set('lbl_rent_gas', ("-$%s" % format(gas, ",.2f"))
+             if gas > 0 else "$0.00",
+             rojo if gas > 0 else gris)
+        _set('lbl_rent_neto', "$%s" % format(queda, ",.2f"),
+             verde if queda >= 0 else rojo)
+
+        if km <= 0 or dias <= 0:
+            _set('lbl_rent_resumen', "Sin datos", gris)
+            _set('lbl_rent_veredicto',
+                 "Carga tus viajes con Km real para ver si renta", gris)
+            return
+
+        por_km = queda / km
+        _set('lbl_rent_resumen',
+             "$%.2f por km · $%.2f por viaje · $%.2f por día"
+             % (por_km,
+                (queda / viajes) if viajes > 0 else 0.0,
+                queda / dias))
+        if por_km >= 0.20:
+            _set('lbl_rent_veredicto',
+                 "RENTABLE · te sobran $%.2f por km para el mantenimiento"
+                 " y las llantas" % por_km, verde)
+        elif por_km >= 0.05:
+            _set('lbl_rent_veredicto',
+                 "AJUSTADO · solo $%.2f por km te queda para el carro:"
+                 " cuida la gasolina y sube la tarifa" % por_km, ambar)
+        elif por_km >= 0:
+            _set('lbl_rent_veredicto',
+                 "MUY JUSTO · $%.2f por km no alcanza ni para el"
+                 " mantenimiento" % por_km, rojo)
+        else:
+            _set('lbl_rent_veredicto',
+                 "PÉRDIDA · cada km te cuesta $%.2f: estás pagando"
+                 " manejar" % abs(por_km), rojo)
+
     def draw_chart(self, *args):
         holder = self.ids.chart_canvas
         holder.canvas.clear()
@@ -3035,6 +3225,21 @@ class StatsScreen(Screen):
         """)
         neto, km, km_c, viajes, neto_kc, km_kc = [(v or 0) for v in cur.fetchone()]
         self._pintar_kpis(neto, km, km_c, viajes, neto_kc, km_kc)
+
+        # ¿Cuanto me queda de verdad? Bruto menos comision menos gasolina,
+        # repartido por km, viaje y dia. Solo cuenta lo de manejar: los
+        # gastos de casa y el aporte al carro no entran aqui.
+        cur.execute("""
+            SELECT SUM(CASE WHEN categoria = 'Viaje InDrive' THEN monto ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN COALESCE(comision, 0) ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Combustible' THEN monto ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END),
+                   SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END),
+                   COUNT(DISTINCT CASE WHEN categoria = 'Viaje InDrive' THEN fecha END)
+            FROM transacciones WHERE cuenta = 'Ahorro InDrive'
+        """)
+        bruto_r, com_r, gas_r, km_r, vj_r, dias_r = [(v or 0) for v in cur.fetchone()]
+        self._pintar_rentabilidad(bruto_r, com_r, gas_r, km_r, vj_r, dias_r)
         
         daily = self.ids.list_daily_profits
         daily.clear_widgets()

@@ -231,6 +231,60 @@ def main_test():
         fila = [t for t in _textos(sin_kc) if " vj | " in t]
         chk(fila == ["22 vj | 180 km"],
             "sin Km InDrive la fila debia quedar como estaba: %r" % (fila,))
+
+        # ------------------------------------ ¿que me queda de verdad? ---
+        # Los mismos números de octubre del conductor: bruto 580,
+        # comision 59.15, gasolina 255.43, 1401.3 km, 182 viajes, 15 dias.
+        # Me quedan 265.42 = 0.19/km -> AJUSTADO (ambar).
+        for clave in ('lbl_rent_bruto', 'lbl_rent_com', 'lbl_rent_gas',
+                      'lbl_rent_neto', 'lbl_rent_resumen', 'lbl_rent_veredicto'):
+            chk(clave in pantalla.ids, "falta la id %r en <StatsScreen>" % clave)
+
+        pantalla._pintar_rentabilidad(580.0, 59.15, 255.43, 1401.3, 182, 15)
+        chk(ids.lbl_rent_bruto.text == "$580.00",
+            "el bruto debia dar $580.00 y dio %r" % ids.lbl_rent_bruto.text)
+        chk(ids.lbl_rent_com.text == "-$59.15",
+            "la comision debia dar -$59.15 y dio %r" % ids.lbl_rent_com.text)
+        chk(ids.lbl_rent_gas.text == "-$255.43",
+            "la gasolina debia dar -$255.43 y dio %r" % ids.lbl_rent_gas.text)
+        chk(ids.lbl_rent_neto.text == "$265.42",
+            "me quedan $265.42 y la tarjeta dice %r" % ids.lbl_rent_neto.text)
+        chk(ids.lbl_rent_resumen.text ==
+            "$0.19 por km · $1.46 por viaje · $17.69 por día",
+            "el resumen por km/viaje/dia salio %r" % ids.lbl_rent_resumen.text)
+        chk(ids.lbl_rent_veredicto.text.startswith("AJUSTADO"),
+            "con 0.19/km el veredicto debia ser AJUSTADO y dice %r"
+            % ids.lbl_rent_veredicto.text)
+        chk(_mismo_color(ids.lbl_rent_veredicto.color, AMBAR),
+            "con 0.19/km el veredicto debia salir ambar: %r"
+            % (ids.lbl_rent_veredicto.color,))
+
+        # Sin km cargados no se presume nada: gris y "Sin datos".
+        pantalla._pintar_rentabilidad(0, 0, 0, 0, 0, 0)
+        chk(ids.lbl_rent_resumen.text == "Sin datos",
+            "sin km el resumen debia decir 'Sin datos' y dice %r"
+            % ids.lbl_rent_resumen.text)
+        chk(_mismo_color(ids.lbl_rent_resumen.color, GRIS),
+            "sin km el resumen debia quedar gris: %r"
+            % (ids.lbl_rent_resumen.color,))
+
+        # Con plata de mas por km: verde RENTABLE.
+        pantalla._pintar_rentabilidad(580.0, 59.15, 100.0, 1401.3, 182, 15)
+        chk(ids.lbl_rent_veredicto.text.startswith("RENTABLE"),
+            "con 0.30/km el veredicto debia ser RENTABLE y dice %r"
+            % ids.lbl_rent_veredicto.text)
+        chk(_mismo_color(ids.lbl_rent_veredicto.color, VERDE),
+            "con 0.30/km el veredicto debia salir verde: %r"
+            % (ids.lbl_rent_veredicto.color,))
+
+        # Mas gasolina que plata: rojo PÉRDIDA.
+        pantalla._pintar_rentabilidad(100.0, 0.0, 250.0, 500.0, 80, 10)
+        chk(ids.lbl_rent_veredicto.text.startswith("PÉRDIDA"),
+            "con gasolina de mas el veredicto debia ser PÉRDIDA y dice %r"
+            % ids.lbl_rent_veredicto.text)
+        chk(_mismo_color(ids.lbl_rent_veredicto.color, ROJO),
+            "en perdida el veredicto debia salir rojo: %r"
+            % (ids.lbl_rent_veredicto.color,))
     finally:
         main.writable_db_path = ruta_origen
         if pantalla is not None:
