@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.13"
-VERSION_CODE = 123
-NOTA = "Ahorros: el Km InDrive (cliente) se puede guardar solo, sin bruto ni gasolina, para cargar la comparativa Km InDrive/real."
+VERSION = "1.1.15"
+VERSION_CODE = 125
+NOTA = "Ahorros: el Km InDrive de un dia se suma a la sesion con viajes/km de ese dia (no a la ultima fila), y sin bruto no se crean filas de $0 que disparejan las tarjetas."

@@ -2355,8 +2355,32 @@ class AhorroScreen(Screen):
         conn = get_db_connection()
         cur = conn.cursor()
 
-        if bruto > 0 or hay_km:
+        if bruto > 0:
             cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, comision, viajes, km, categoria, descripcion, km_cliente) VALUES (?, 'Ahorro InDrive', 'Ingreso', ?, ?, ?, ?, 'Viaje InDrive', 'Sesión', ?)", (fecha_db, bruto, comision, viajes, km, km_cliente))
+        elif hay_km:
+            # Sin plata: si ese dia ya hay una sesion, los km se le
+            # SUMAN en vez de crear una fila de $0. Una fila sin bruto
+            # mete km al denominador sin dinero en el numerador y las
+            # tarjetas de precio $/km y comparativa quedan disparejas.
+            # Se prefiere la fila que parece sesion de manejo (viajes o
+            # km): un dia puede tener filas de $4 despues de la sesion y
+            # a esas no hay que sumarle los km del app.
+            cur.execute("SELECT id, km, km_cliente, viajes FROM transacciones "
+                        "WHERE fecha = ? AND cuenta = 'Ahorro InDrive' "
+                        "AND categoria = 'Viaje InDrive' "
+                        "AND (monto > 0 OR km_cliente > 0) "
+                        "ORDER BY (viajes > 0 OR km > 0) DESC, id DESC LIMIT 1",
+                        (fecha_db,))
+            sesion = cur.fetchone()
+            if sesion:
+                sid, km_prev, kmc_prev, vj_prev = sesion
+                cur.execute("UPDATE transacciones SET km = ?, km_cliente = ?, "
+                            "viajes = ? WHERE id = ?",
+                            (float(km_prev or 0) + km,
+                             float(kmc_prev or 0) + km_cliente,
+                             int(vj_prev or 0) + viajes, sid))
+            else:
+                cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, comision, viajes, km, categoria, descripcion, km_cliente) VALUES (?, 'Ahorro InDrive', 'Ingreso', ?, ?, ?, ?, 'Viaje InDrive', 'Sesión', ?)", (fecha_db, bruto, comision, viajes, km, km_cliente))
         if gasolina > 0:
             cur.execute("INSERT INTO transacciones (fecha, cuenta, tipo, monto, categoria, descripcion) VALUES (?, 'Ahorro InDrive', 'Gasto', ?, 'Combustible', 'Gasolina')", (fecha_db, gasolina))
         if uso_carro > 0:

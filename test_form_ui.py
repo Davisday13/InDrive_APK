@@ -12,7 +12,9 @@ contenedor hay que pedirle al padre que vuelva a acomodar.
 No toca la nube ni la base real: trabaja en un directorio temporal.
 
 Tambien cubre que el campo Km InDrive (cliente) se puede guardar solo,
-sin bruto ni gasolina, para poder hacer la comparativa Km InDrive/real.
+sin bruto ni gasolina: si el dia ya tiene sesion los km se le SUMAN a
+esa sesion (una sola fila, tarjetas parejas); si no tiene, se crea la
+fila igual que antes.
 """
 import os
 import shutil
@@ -207,26 +209,105 @@ def disparar(dt):
         _foto("3_viaje_vuelta.png")
 
     def paso7():
-        # Regresion: guardar SOLO el Km InDrive (cliente), sin bruto ni
-        # gasolina, tiene que dejar cargar la sesion para que la
-        # comparativa Km InDrive/real se pueda armar.
+        # (a) sesion normal del dia de HOY: bruto + km real + viajes.
         scr = _scr()
-        scr.txt_km_cliente.text = "12.5"
+        scr.txt_fecha.text = main.hoy_corto()
+        scr.txt_bruto.text = "40"
+        scr.txt_km.text = "100"
+        scr.txt_viajes.text = "12"
         scr.save_viaje()
 
     def paso8():
         conn = sqlite3.connect(main.writable_db_path)
         filas = conn.execute(
-            "SELECT monto, km, km_cliente FROM transacciones"
-            " WHERE categoria = 'Viaje InDrive' AND km_cliente = 12.5"
-        ).fetchall()
+            "SELECT monto, km, viajes, km_cliente FROM transacciones"
+            " WHERE categoria = 'Viaje InDrive' AND fecha = ?",
+            (main.hoy_iso(),)).fetchall()
         conn.close()
-        chk(filas == [(0.0, 0.0, 12.5)],
-            "solo con Km InDrive la sesion debia quedar en $0 con 12.5 km"
-            " y quedo %r" % (filas,))
+        chk(filas == [(40.0, 100.0, 12, 0.0)],
+            "la sesion del dia debia quedar en $40 con 100 km y 12"
+            " viajes y quedo %r" % (filas,))
+
+    def paso9():
+        # (b) guardar SOLO el Km InDrive (cliente) un dia que YA tiene
+        # sesion: los km se le SUMAN a esa sesion y NO se crea una fila
+        # de $0 (eso dispareja las tarjetas de precio y comparativa).
+        scr = _scr()
+        scr.txt_fecha.text = main.hoy_corto()
+        scr.txt_km_cliente.text = "12.5"
+        scr.save_viaje()
+
+    def paso10():
+        conn = sqlite3.connect(main.writable_db_path)
+        filas = conn.execute(
+            "SELECT monto, km, viajes, km_cliente FROM transacciones"
+            " WHERE categoria = 'Viaje InDrive' AND fecha = ?",
+            (main.hoy_iso(),)).fetchall()
+        conn.close()
+        chk(filas == [(40.0, 100.0, 12, 12.5)],
+            "el Km InDrive solo debia SUMARSE a la sesion del dia (una"
+            " unica fila con $40, 100 km y 12.5 de app) y quedo %r"
+            % (filas,))
         popups = [w for w in Window.children if isinstance(w, main.Popup)]
         chk(not popups,
             "solo con Km InDrive no debia salir el popup de campo requerido")
+
+    def paso11():
+        # (c) un dia SIN sesion, el Km InDrive solo si crea la fila:
+        # no hay a donde sumarle los km.
+        scr = _scr()
+        scr.txt_fecha.text = "20/10/2026"
+        scr.txt_km_cliente.text = "7"
+        scr.save_viaje()
+
+    def paso12():
+        conn = sqlite3.connect(main.writable_db_path)
+        filas = conn.execute(
+            "SELECT monto, km, km_cliente FROM transacciones"
+            " WHERE categoria = 'Viaje InDrive' AND fecha = '2026-10-20'"
+        ).fetchall()
+        conn.close()
+        chk(filas == [(0.0, 0.0, 7.0)],
+            "en un dia sin sesion el Km InDrive solo debia crear una fila"
+            " en $0 con 7 km y quedo %r" % (filas,))
+
+    def paso13():
+        # (d) un dia con sesion de manejo y una fila de $4 despues:
+        # los km del app tienen que ir a la sesion (viajes/km), no a la
+        # ultima fila del dia.
+        scr = _scr()
+        scr.txt_fecha.text = "21/10/2026"
+        scr.txt_bruto.text = "30"
+        scr.txt_km.text = "80"
+        scr.txt_viajes.text = "10"
+        scr.save_viaje()
+        scr.txt_fecha.text = "21/10/2026"
+        scr.txt_bruto.text = "4"
+        scr.save_viaje()
+
+    def paso14():
+        scr = _scr()
+        scr.txt_fecha.text = "21/10/2026"
+        scr.txt_km_cliente.text = "43"
+        scr.save_viaje()
+
+    def paso15():
+        conn = sqlite3.connect(main.writable_db_path)
+        sesion = conn.execute(
+            "SELECT monto, km, viajes, km_cliente FROM transacciones"
+            " WHERE fecha = '2026-10-21' AND km > 0"
+        ).fetchall()
+        suelta = conn.execute(
+            "SELECT monto, km_cliente FROM transacciones"
+            " WHERE fecha = '2026-10-21' AND km = 0 AND monto = 4"
+        ).fetchall()
+        conn.close()
+        chk(sesion == [(30.0, 80.0, 10, 43.0)],
+            "el Km InDrive solo debia sumarse a la sesion con viajes"
+            " (30/80/10 -> 43 de app) y quedo %r" % (sesion,))
+        chk(suelta == [(4.0, 0.0)],
+            "la fila de $4 del dia no debia recibir km del app: %r"
+            % (suelta,))
         app.stop()
 
     Clock.schedule_once(lambda dt: paso1(), 2.0)
@@ -237,6 +318,13 @@ def disparar(dt):
     Clock.schedule_once(lambda dt: paso6(), 7.5)
     Clock.schedule_once(lambda dt: paso7(), 8.5)
     Clock.schedule_once(lambda dt: paso8(), 9.5)
+    Clock.schedule_once(lambda dt: paso9(), 10.5)
+    Clock.schedule_once(lambda dt: paso10(), 11.5)
+    Clock.schedule_once(lambda dt: paso11(), 12.5)
+    Clock.schedule_once(lambda dt: paso12(), 13.5)
+    Clock.schedule_once(lambda dt: paso13(), 14.5)
+    Clock.schedule_once(lambda dt: paso14(), 15.5)
+    Clock.schedule_once(lambda dt: paso15(), 16.5)
 
 
 Clock.schedule_once(disparar, 2.5)
