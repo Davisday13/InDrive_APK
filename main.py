@@ -474,7 +474,16 @@ def init_database():
     cursor.execute("SELECT count(*) FROM clientes")
     if cursor.fetchone()[0] == 0:
         cursor.execute("INSERT INTO clientes (nombre) VALUES (?)", ("Jose Luis Cubilla",))
-    
+
+    # Indices para Estadisticas: sin esto cada redibujado recorre y agrupa
+    # toda la tabla.
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trans_fecha"
+        " ON transacciones(fecha)")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trans_cuenta_cat_fecha"
+        " ON transacciones(cuenta, categoria, fecha)")
+
     close_db(conn)
     print("Base de datos inicializada")
 
@@ -1098,21 +1107,70 @@ ScreenManager:
             BoxLayout:
                 size_hint_y: None
                 height: '45dp'
-            Button:
-                text: "< Volver"
-                size_hint_x: None
-                width: '80dp'
-                background_color: 0, 0, 0, 0
-                color: 0.08, 0.08, 0.09, 1
-                font_size: '14sp'
-                bold: True
-                on_press: root._volver_atras()
+                Button:
+                    text: "< Volver"
+                    size_hint_x: None
+                    width: '80dp'
+                    background_color: 0, 0, 0, 0
+                    color: 0.08, 0.08, 0.09, 1
+                    font_size: '14sp'
+                    bold: True
+                    on_press: root._volver_atras()
                 Label:
                     text: "ESTADÍSTICAS"
                     font_size: '16sp'
                     bold: True
                     color: 0.08, 0.08, 0.09, 1
                     halign: 'center'
+                    valign: 'middle'
+                    text_size: self.size
+                BoxLayout:
+                    size_hint_x: None
+                    width: '80dp'
+
+            BoxLayout:
+                size_hint_y: None
+                height: '32dp'
+                spacing: 6
+                Label:
+                    text: "Periodo"
+                    font_size: '11sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_x: None
+                    width: '52dp'
+                Button:
+                    text: "3M"
+                    background_normal: ''
+                    font_size: '12sp'
+                    bold: True
+                    background_color: (0.07, 0.65, 0.60, 1) if root.periodo == '3m' else (0.94, 0.94, 0.96, 1)
+                    color: (1, 1, 1, 1) if root.periodo == '3m' else (0.08, 0.08, 0.09, 1)
+                    on_press: root.cambiar_periodo('3m')
+                Button:
+                    text: "6M"
+                    background_normal: ''
+                    font_size: '12sp'
+                    bold: True
+                    background_color: (0.07, 0.65, 0.60, 1) if root.periodo == '6m' else (0.94, 0.94, 0.96, 1)
+                    color: (1, 1, 1, 1) if root.periodo == '6m' else (0.08, 0.08, 0.09, 1)
+                    on_press: root.cambiar_periodo('6m')
+                Button:
+                    text: "12M"
+                    background_normal: ''
+                    font_size: '12sp'
+                    bold: True
+                    background_color: (0.07, 0.65, 0.60, 1) if root.periodo == '12m' else (0.94, 0.94, 0.96, 1)
+                    color: (1, 1, 1, 1) if root.periodo == '12m' else (0.08, 0.08, 0.09, 1)
+                    on_press: root.cambiar_periodo('12m')
+                Button:
+                    text: "Todo"
+                    background_normal: ''
+                    font_size: '12sp'
+                    bold: True
+                    background_color: (0.07, 0.65, 0.60, 1) if root.periodo == 'todo' else (0.94, 0.94, 0.96, 1)
+                    color: (1, 1, 1, 1) if root.periodo == 'todo' else (0.08, 0.08, 0.09, 1)
+                    on_press: root.cambiar_periodo('todo')
 
             BoxLayout:
                 size_hint_y: None
@@ -1200,6 +1258,83 @@ ScreenManager:
                         font_size: '16sp'
                         bold: True
                         color: 0.07, 0.65, 0.60, 1
+
+            RoundedCard:
+                id: costo_km_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 10]
+                spacing: 4
+
+                Label:
+                    text: "Costo del km: app vs real"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '22dp'
+                Label:
+                    text: "Bruto del viaje menos comisión, dividido entre los km"
+                    font_size: '10sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'left'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '14dp'
+                    text_size: self.width, None
+
+                GridLayout:
+                    cols: 2
+                    row_default_height: '24dp'
+                    row_force_default: True
+                    spacing: 4
+                    size_hint_y: None
+                    height: self.minimum_height
+                    Label:
+                        text: "Con los km de la app"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    Label:
+                        id: lbl_costo_app
+                        text: "-"
+                        font_size: '13sp'
+                        bold: True
+                        halign: 'right'
+                        valign: 'middle'
+                        text_size: self.size
+                        color: 0.08, 0.08, 0.09, 1
+                    Label:
+                        text: "Con los km reales del carro"
+                        font_size: '11sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    Label:
+                        id: lbl_costo_real
+                        text: "-"
+                        font_size: '13sp'
+                        bold: True
+                        halign: 'right'
+                        valign: 'middle'
+                        text_size: self.size
+                        color: 0.08, 0.08, 0.09, 1
+
+                Label:
+                    id: lbl_costo_dif
+                    text: "..."
+                    font_size: '11sp'
+                    bold: True
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'center'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '30dp'
+                    text_size: self.width - 16, None
 
             RoundedCard:
                 id: rentabilidad_card
@@ -1411,6 +1546,7 @@ ScreenManager:
                     size_hint_y: None
                     height: '24dp'
                 Label:
+                    id: lbl_contable_rango
                     text: "Ingresos vs egresos · últimos 12 meses"
                     font_size: '10sp'
                     color: 0.3, 0.3, 0.35, 1
@@ -2203,7 +2339,8 @@ class DashboardScreen(Screen):
         tot_ahorro_eg = 0.0
         for tipo, cat, monto, comision in ahorro_rows:
             if tipo == "Ingreso":
-                tot_ahorro_ing += (monto - comision) if cat == "Viaje InDrive" else monto
+                tot_ahorro_ing += ((monto - (comision or 0))
+                                   if cat == "Viaje InDrive" else monto)
             elif tipo == "Gasto":
                 tot_ahorro_eg += monto
         
@@ -2769,6 +2906,24 @@ class CarroScreen(Screen):
 MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
                 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
+MESES_NOMBRES = [
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
+
+
+def _mes_menos(clave, meses):
+    """'2025-01' menos 1 mes -> '2024-12'. None si la clave no sirve."""
+    try:
+        anio = int(clave[:4])
+        mes = int(clave[5:7])
+    except (TypeError, ValueError):
+        return None
+    if not 1 <= mes <= 12:
+        return None
+    total = anio * 12 + (mes - 1) - int(meses)
+    return "%04d-%02d" % (total // 12, total % 12 + 1)
+
 
 def _mes_previo_clave(clave):
     """'2025-12' -> '2025-11' y '2025-01' -> '2024-12'. None si no se puede."""
@@ -2811,8 +2966,8 @@ def _etiqueta_mes_largo(clave):
 
 # Neto mensual de la cuenta Ahorro InDrive: ingresos menos comision (solo en
 # Viaje InDrive) menos los gastos, que ya incluyen gasolina y el aporte al
-# carro que graba la pantalla de sesion. El limite es del mas reciente
-# hacia atras, asi que el resultado viene en orden descendente.
+# carro que graba la pantalla de sesion. Viene en orden descendente; el
+# recorte por periodo lo hace draw_chart al envolver esta consulta.
 SQL_GANANCIA_MES = """
     SELECT strftime('%Y-%m', fecha) as mes,
            SUM(CASE WHEN tipo = 'Ingreso' AND categoria = 'Viaje InDrive'
@@ -2824,7 +2979,6 @@ SQL_GANANCIA_MES = """
       AND categoria != 'Retiro'
     GROUP BY mes
     ORDER BY mes DESC
-    LIMIT 12
 """
 
 
@@ -2866,7 +3020,6 @@ SQL_CONTABLE_MES = """
     WHERE cuenta = 'Ahorro InDrive'
     GROUP BY mes
     ORDER BY mes DESC
-    LIMIT 12
 """
 
 
@@ -2894,6 +3047,80 @@ RUBROS_EGRESO = {
     'Viaje InDrive': 'Comisiones InDrive',
     'Retiro': 'Retiros',
 }
+
+# Semaforos de las tarjetas del conductor. Estan aca (y no sueltos en cada
+# tarjeta) para que las etiquetas del KV y las pruebas hablen del mismo
+# numero.
+AMBAR = [0.95, 0.65, 0.15, 1]
+UMBRAL_NETO_KM = 0.45
+UMBRAL_NETO_KM_AJUSTADO = 0.30
+UMBRAL_PAGO_APP_KM = 0.75
+UMBRAL_PAGO_APP_KM_AJUSTADO = 0.60
+UMBRAL_KM_MUERTO = 0.40
+UMBRAL_KM_MUERTO_AJUSTADO = 0.55
+UMBRAL_KM_VIAJE = 6.0
+UMBRAL_KM_VIAJE_AJUSTADO = 8.0
+UMBRAL_COMPARATIVA = 0.60
+UMBRAL_COMPARATIVA_AJUSTADA = 0.45
+
+# Ventanas del selector de periodo. None = todo el historial.
+PERIODOS_ESTADISTICA = {'3m': 3, '6m': 6, '12m': 12, 'todo': None}
+
+
+def _semaforo(valor, bueno, ajustado, mayor_es_mejor=True):
+    """Color verde/ambar/rojo segun el umbral (o gris si no hay dato)."""
+    try:
+        valor = float(valor)
+    except (TypeError, ValueError):
+        return TEXT_SECONDARY
+    if mayor_es_mejor:
+        if valor >= bueno:
+            return PRIMARY
+        if valor >= ajustado:
+            return AMBAR
+    else:
+        if valor <= bueno:
+            return PRIMARY
+        if valor <= ajustado:
+            return AMBAR
+    return NEG
+
+
+def _color_neto_km(valor):
+    return _semaforo(valor, UMBRAL_NETO_KM, UMBRAL_NETO_KM_AJUSTADO)
+
+
+def _color_pago_app(valor):
+    return _semaforo(valor, UMBRAL_PAGO_APP_KM, UMBRAL_PAGO_APP_KM_AJUSTADO)
+
+
+def _color_km_muerto(valor):
+    return _semaforo(valor, UMBRAL_KM_MUERTO, UMBRAL_KM_MUERTO_AJUSTADO,
+                     mayor_es_mejor=False)
+
+
+def _color_km_viaje(valor):
+    return _semaforo(valor, UMBRAL_KM_VIAJE, UMBRAL_KM_VIAJE_AJUSTADO,
+                     mayor_es_mejor=False)
+
+
+def _color_comparativa(valor):
+    return _semaforo(valor, UMBRAL_COMPARATIVA, UMBRAL_COMPARATIVA_AJUSTADA)
+
+
+def _costo_por_km(neto, km):
+    """Neto por km: (bruto - comision) / km. None si no hay km.
+
+    Se usa igual para los km de la app y para los km reales del carro, asi
+    las dos tarjetas se comparan con la misma formula.
+    """
+    try:
+        km = float(km or 0.0)
+        if km <= 0.005:
+            return None
+        return float(neto or 0.0) / km
+    except (TypeError, ValueError):
+        return None
 
 
 def _calcular_contable(filas):
@@ -3008,6 +3235,7 @@ def _margen_color(margen):
 class StatsScreen(Screen):
     badge_texto = StringProperty("Sin movimientos todavía")
     badge_color = ListProperty(COLORES_FACTIBILIDAD["sin_datos"])
+    periodo = StringProperty("12m")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -3015,12 +3243,62 @@ class StatsScreen(Screen):
         self._meses_rubro = []      # claves 'AAAA-MM' con movimientos, desc
         self._filas_rubro = []      # filas de SQL_EGRESOS_RUBRO
         self._rubro_mes = None      # mes que muestra "¿En qué se va el dinero?"
+        self._draw_event = None
+
+    def _programar_dibujo(self, demora=0.05):
+        """Un solo redibujado pendiente: el tamaño cambia varias veces."""
+        if self._draw_event is not None:
+            try:
+                self._draw_event.cancel()
+            except Exception:
+                pass
+        self._draw_event = Clock.schedule_once(self._dibujar, demora)
+
+    def _dibujar(self, *args):
+        self._draw_event = None
+        self.draw_chart()
 
     def trigger_draw(self, *args):
-        Clock.schedule_once(self.draw_chart, 0.05)
+        self._programar_dibujo(0.05)
 
     def on_enter(self, *args):
-        Clock.schedule_once(self.draw_chart, 0.1)
+        self._programar_dibujo(0.1)
+
+    def cambiar_periodo(self, clave):
+        if clave not in PERIODOS_ESTADISTICA or clave == self.periodo:
+            return
+        self.periodo = clave
+        self._programar_dibujo(0.02)
+
+    def _rango_del_periodo(self, cur):
+        """(desde_mes, mes_mas_nuevo) de la ventana elegida.
+
+        Se ancla al ultimo dato cargado, no a hoy: si el conductor dejo de
+        registrar, el resumen sigue mostrando sus ultimos meses en vez de
+        una pantalla vacia. None en desde_mes significa "todo".
+        """
+        try:
+            cur.execute("SELECT MAX(fecha) FROM transacciones")
+            max_fecha = cur.fetchone()[0]
+        except Exception:
+            max_fecha = None
+        if not max_fecha:
+            return (None, None)
+        max_mes = str(max_fecha)[:7]
+        meses = PERIODOS_ESTADISTICA.get(self.periodo)
+        if meses is None:
+            return (None, max_mes)
+        return (_mes_menos(max_mes, meses - 1), max_mes)
+
+    def _pintar_rango(self, desde_mes, max_mes):
+        lbl = self.ids.get('lbl_contable_rango')
+        if lbl is None:
+            return
+        if self.periodo == 'todo' or not desde_mes or not max_mes:
+            lbl.text = "Ingresos vs egresos · todo el historial"
+        else:
+            lbl.text = "Ingresos vs egresos · %s – %s" % (
+                _etiqueta_mes(desde_mes), _etiqueta_mes(max_mes))
 
     def rubro_anterior(self, *args):
         """Muestra un mes mas viejo (◀)."""
@@ -3090,7 +3368,7 @@ class StatsScreen(Screen):
         Km InDrive: el Km InDrive se empareja con el km real del MISMO
         dia aunque vengan de dos guardados distintos.
         """
-        verde, ambar, rojo, gris = PRIMARY, [0.95, 0.65, 0.15, 1], NEG, TEXT_SECONDARY
+        gris = TEXT_SECONDARY
 
         def _set(id_lbl, texto, color):
             lbl = self.ids.get(id_lbl)
@@ -3099,17 +3377,20 @@ class StatsScreen(Screen):
             lbl.text = texto
             lbl.color = list(color)
 
-        if km > 0:
-            real = neto / km
-            col = verde if real >= 0.45 else (ambar if real >= 0.30 else rojo)
-            _set('lbl_efficiency', f"${real:.2f}/KM", col)
+        precio_real = _costo_por_km(neto, km)
+        if precio_real is not None:
+            _set('lbl_efficiency', f"${precio_real:.2f}/KM",
+                 _color_neto_km(precio_real))
         else:
             _set('lbl_efficiency', "Sin datos", gris)
 
-        if km_c > 0:
-            precio = neto_kc / km_c
-            col = verde if precio >= 0.75 else (ambar if precio >= 0.60 else rojo)
-            _set('lbl_kpi_precio', f"${precio:.2f}", col)
+        # Las dos caras del mismo viaje: lo que paga la app por sus km y lo
+        # que deja cada km real del carro en esos mismos dias.
+        precio_app = _costo_por_km(neto_kc, km_c)
+        precio_km_real = _costo_por_km(neto_kc, km_kc)
+        if precio_app is not None:
+            _set('lbl_kpi_precio', f"${precio_app:.2f}",
+                 _color_pago_app(precio_app))
         else:
             _set('lbl_kpi_precio', "Sin datos", gris)
 
@@ -3118,24 +3399,66 @@ class StatsScreen(Screen):
             # sin Km real) el resultado seria negativo: los km muertos no
             # pueden ser menos de cero.
             muerto = max(0.0, 1 - (km_c / km_kc))
-            col = verde if muerto <= 0.40 else (ambar if muerto <= 0.55 else rojo)
-            _set('lbl_kpi_muerto', f"{muerto * 100:.0f}%", col)
+            _set('lbl_kpi_muerto', f"{muerto * 100:.0f}%",
+                 _color_km_muerto(muerto))
         else:
             _set('lbl_kpi_muerto', "Sin datos", gris)
 
         if viajes > 0 and km > 0:
             km_vj = km / viajes
-            col = verde if km_vj <= 6 else (ambar if km_vj <= 8 else rojo)
-            _set('lbl_kpi_kmviaje', f"{km_vj:.1f}", col)
+            _set('lbl_kpi_kmviaje', f"{km_vj:.1f}", _color_km_viaje(km_vj))
         else:
             _set('lbl_kpi_kmviaje', "Sin datos", gris)
 
         if km_kc > 0 and km_c > 0:
             ratio = km_c / km_kc
-            col = verde if ratio >= 0.60 else (ambar if ratio >= 0.45 else rojo)
-            _set('lbl_kpi_comparativa', f"{km_c:,.0f}/{km_kc:,.0f}", col)
+            _set('lbl_kpi_comparativa', f"{km_c:,.0f}/{km_kc:,.0f}",
+                 _color_comparativa(ratio))
         else:
             _set('lbl_kpi_comparativa', "Sin datos", gris)
+
+        self._pintar_costo_km(precio_app, precio_km_real)
+
+    def _pintar_costo_km(self, precio_app, precio_real):
+        """Compara el $/km de la app contra el $/km real del mismo dia.
+
+        Las dos cifras salen de la misma plata (bruto menos comision). Solo
+        cambia el divisor: km que reporta inDrive o km que marco el auto.
+        La diferencia es lo que cuesta el km muerto.
+        """
+        def _set(id_lbl, texto, color):
+            lbl = self.ids.get(id_lbl)
+            if lbl is None:
+                return
+            lbl.text = texto
+            lbl.color = list(color)
+
+        if precio_app is None:
+            _set('lbl_costo_app', "Sin datos", TEXT_SECONDARY)
+        else:
+            _set('lbl_costo_app', "$%.2f/km" % precio_app,
+                 _color_pago_app(precio_app))
+
+        if precio_real is None:
+            _set('lbl_costo_real', "Sin datos", TEXT_SECONDARY)
+        else:
+            _set('lbl_costo_real', "$%.2f/km" % precio_real,
+                 _color_neto_km(precio_real))
+
+        if (precio_app is None or precio_real is None
+                or precio_app <= 0.005):
+            _set('lbl_costo_dif',
+                 "Carga viajes con Km InDrive y Km real para comparar",
+                 TEXT_SECONDARY)
+            return
+
+        diferencia = precio_real - precio_app
+        porcentaje = diferencia / precio_app * 100.0
+        _set('lbl_costo_dif',
+             "El km real deja $%.2f %s por km que el de la app (%.0f%%)"
+             % (abs(diferencia), "más" if diferencia >= 0 else "menos",
+                abs(porcentaje)),
+             PRIMARY if diferencia >= 0 else NEG)
 
     def _pintar_rentabilidad(self, bruto, comision, gas, km, viajes, dias):
         """Tarjeta '¿Qué me queda de verdad?'.
@@ -3204,26 +3527,41 @@ class StatsScreen(Screen):
             return
             
         conn = get_db_connection()
+        try:
+            self._draw_chart_datos(conn, w, h)
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _draw_chart_datos(self, conn, w, h):
         cur = conn.cursor()
+        desde_mes, max_mes = self._rango_del_periodo(cur)
+        desde_fecha = (desde_mes + "-01") if desde_mes else "0000-01-01"
+        self._pintar_rango(desde_mes, max_mes)
+
         cur.execute("""
             SELECT mes,
-                   SUM(CASE WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - comision 
-                            WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' THEN monto 
+                   SUM(CASE WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - COALESCE(comision, 0)
+                            WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' THEN monto
                             WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Gasto' THEN -monto ELSE 0 END) as ahorro,
                    SUM(CASE WHEN cuenta = 'Uso del Carro' AND tipo = 'Ingreso' THEN monto 
                             WHEN cuenta = 'Uso del Carro' AND tipo = 'Gasto' THEN -monto ELSE 0 END) as carro
-            FROM (SELECT strftime('%Y-%m', fecha) as mes, cuenta, tipo, monto, comision, categoria FROM transacciones WHERE categoria != 'Retiro')
-            GROUP BY mes ORDER BY mes DESC LIMIT 6
-        """)
+            FROM (SELECT strftime('%Y-%m', fecha) as mes, cuenta, tipo, monto, comision, categoria
+                  FROM transacciones
+                  WHERE categoria != 'Retiro' AND fecha >= ?)
+            GROUP BY mes ORDER BY mes DESC
+        """, (desde_fecha,))
         rows = cur.fetchall()
         
         cur.execute("""
-            SELECT SUM(CASE WHEN categoria = 'Viaje InDrive' THEN monto - comision ELSE 0 END),
+            SELECT SUM(CASE WHEN categoria = 'Viaje InDrive' THEN monto - COALESCE(comision, 0) ELSE 0 END),
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END),
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km_cliente ELSE 0 END),
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END)
-            FROM transacciones WHERE cuenta = 'Ahorro InDrive'
-        """)
+            FROM transacciones WHERE cuenta = 'Ahorro InDrive' AND fecha >= ?
+        """, (desde_fecha,))
         neto, km, km_c, viajes = [(v or 0) for v in cur.fetchone()]
         # Pago app y Km muerto se emparejan POR DIA, no por fila: el Km
         # InDrive puede llegar en un guardado aparte del km real del
@@ -3232,13 +3570,14 @@ class StatsScreen(Screen):
         # y la comparativa sale al reves (732/387 y 0% de muerto).
         cur.execute("""
             SELECT SUM(neto_dia), SUM(km_dia) FROM (
-                SELECT SUM(monto - comision) AS neto_dia,
+                SELECT SUM(monto - COALESCE(comision, 0)) AS neto_dia,
                        SUM(km) AS km_dia
                 FROM transacciones
                 WHERE cuenta = 'Ahorro InDrive' AND categoria = 'Viaje InDrive'
+                  AND fecha >= ?
                 GROUP BY fecha HAVING SUM(km_cliente) > 0
             )
-        """)
+        """, (desde_fecha,))
         neto_kc, km_kc = [(v or 0) for v in cur.fetchone()]
         self._pintar_kpis(neto, km, km_c, viajes, neto_kc, km_kc)
 
@@ -3252,8 +3591,8 @@ class StatsScreen(Screen):
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END),
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END),
                    COUNT(DISTINCT CASE WHEN categoria = 'Viaje InDrive' THEN fecha END)
-            FROM transacciones WHERE cuenta = 'Ahorro InDrive'
-        """)
+            FROM transacciones WHERE cuenta = 'Ahorro InDrive' AND fecha >= ?
+        """, (desde_fecha,))
         bruto_r, com_r, gas_r, km_r, vj_r, dias_r = [(v or 0) for v in cur.fetchone()]
         self._pintar_rentabilidad(bruto_r, com_r, gas_r, km_r, vj_r, dias_r)
         
@@ -3261,7 +3600,7 @@ class StatsScreen(Screen):
         daily.clear_widgets()
         cur.execute("""
             SELECT fecha,
-                   SUM(CASE WHEN tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - comision WHEN tipo = 'Ingreso' THEN monto ELSE 0 END) as ingresos,
+                   SUM(CASE WHEN tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - COALESCE(comision, 0) WHEN tipo = 'Ingreso' THEN monto ELSE 0 END) as ingresos,
                    SUM(CASE WHEN tipo = 'Gasto' THEN monto ELSE 0 END) as gastos,
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN viajes ELSE 0 END) as viajes,
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km ELSE 0 END) as km,
@@ -3269,15 +3608,18 @@ class StatsScreen(Screen):
                    SUM(CASE WHEN categoria = 'Uso del Carro' THEN monto ELSE 0 END) as uso,
                    SUM(CASE WHEN categoria = 'Viaje InDrive' THEN km_cliente ELSE 0 END) as km_c
             FROM transacciones WHERE cuenta = 'Ahorro InDrive' AND categoria != 'Retiro'
+              AND fecha >= ?
             GROUP BY fecha ORDER BY fecha DESC LIMIT 15
-        """)
+        """, (desde_fecha,))
         for row in cur.fetchall():
             daily.add_widget(DailyProfitItem(*row))
 
-        # --- ganancia por mes: los ultimos 12 meses, del mas reciente arriba ---
+        # --- ganancia por mes del periodo, del mas reciente arriba ---
         lista_mes = self.ids.list_monthly_profits
         lista_mes.clear_widgets()
-        cur.execute(SQL_GANANCIA_MES)
+        cur.execute("SELECT * FROM (" + SQL_GANANCIA_MES
+                    + ") WHERE mes >= ? ORDER BY mes DESC",
+                    (desde_mes or "0000-01",))
         mensuales = cur.fetchall()
         for etiqueta, valor, variacion in _calcular_ganancias_mensuales(mensuales):
             lista_mes.add_widget(MonthlyProfitItem(etiqueta, valor, variacion))
@@ -3285,7 +3627,9 @@ class StatsScreen(Screen):
                                            else "Sin movimientos todavía")
 
         # --- control contable: ingresos, egresos, margen y factibilidad ---
-        cur.execute(SQL_CONTABLE_MES)
+        cur.execute("SELECT * FROM (" + SQL_CONTABLE_MES
+                    + ") WHERE mes >= ? ORDER BY mes DESC",
+                    (desde_mes or "0000-01",))
         filas_contable = cur.fetchall()
         contable = _calcular_contable(filas_contable)
 
@@ -3323,11 +3667,13 @@ class StatsScreen(Screen):
         self.ids.lbl_accounting_empty.text = ("" if contable["filas"]
                                               else "Sin movimientos todavía")
 
-        conn.close()
-        
         if not rows:
+            # Sin movimientos no se puede dejar a la vista el mejor mes ni
+            # los meses del dibujado anterior.
+            self.ids.lbl_best_month.text = "-"
+            self.ids.chart_months.clear_widgets()
             return
-        
+
         stats = {}
         for mes, ahorro, carro in rows:
             stats[mes] = {"Ahorro": float(ahorro or 0),
@@ -3338,55 +3684,64 @@ class StatsScreen(Screen):
         # se repetiria si el rango cruza dos años.
         claves = list(reversed(list(stats.keys())))
         etiquetas = [_etiqueta_mes(c).split(" ")[0] for c in claves]
+        n = len(claves)
 
-        if claves:
-            mejor = max(claves, key=lambda c: stats[c]["Ahorro"])
-            self.ids.lbl_best_month.text = _etiqueta_mes(mejor)
+        mejor = max(claves, key=lambda c: stats[c]["Ahorro"])
+        self.ids.lbl_best_month.text = _etiqueta_mes(mejor)
 
         months_container = self.ids.chart_months
         months_container.clear_widgets()
-        for etiqueta in etiquetas:
-            months_container.add_widget(Label(text=etiqueta, font_size='11sp', bold=True, color=[0.08, 0.08, 0.09, 1], halign='center'))
-        
+        for idx, etiqueta in enumerate(etiquetas):
+            # Con 12 meses las etiquetas no entran: se muestra una de cada
+            # dos, sin perder la ultima.
+            visible = n <= 8 or idx % 2 == 0 or idx == n - 1
+            months_container.add_widget(Label(
+                text=etiqueta if visible else "",
+                font_size='10sp' if n > 8 else '11sp',
+                bold=True, color=[0.08, 0.08, 0.09, 1], halign='center'))
+
         px, py = 40, 30
         cw, ch = w - 80, h - 60
-        ox, oy = px, py
-        
-        max_val = 1.0
-        for clave in claves:
-            max_val = max(max_val, abs(stats[clave]["Ahorro"]),
-                          abs(stats[clave]["Carro"]))
-        max_val = max_val * 1.1 if max_val > 0 else 1
-        
-        n = len(claves)
-        if n == 0:
-            return
+        ox = px
+
+        valores = [stats[c]["Ahorro"] for c in claves]
+        valores.extend(stats[c]["Carro"] for c in claves)
+        max_val = max([0.0] + valores)
+        min_val = min([0.0] + valores)
+        if max_val - min_val < 0.005:
+            max_val, min_val = 1.0, 0.0
+        rango = max_val - min_val
+
+        def _y(valor):
+            return py + (valor - min_val) / rango * ch
+
+        cero_y = _y(0.0)
         group_w = cw / n
-        bar_w = (group_w * 0.4) / 2
-        
+        bar_w = max(2.0, (group_w * 0.4) / 2)
+
+        holder = self.ids.chart_canvas
         with holder.canvas:
-            Color(rgba=[0.8, 0.7, 0.6, 0.3])
-            Line(points=[ox, oy, ox + cw, oy], width=1)
-            
+            # Linea de cero: las perdidas ahora se dibujan hacia abajo.
+            Color(rgba=[0.8, 0.7, 0.6, 0.35])
+            Line(points=[ox, cero_y, ox + cw, cero_y], width=1)
+
             for idx, clave in enumerate(claves):
                 ahorro = stats[clave]["Ahorro"]
                 carro = stats[clave]["Carro"]
                 gx = ox + (idx * group_w) + (group_w / 2)
-                
-                # Altura >= 0: un negativo deja size negativo y no se pinta.
-                h_ah = max(0.0, ahorro / max_val * ch)
-                Color(rgba=[0.07, 0.65, 0.60, 1])
-                RoundedRectangle(pos=(gx - bar_w - 4, oy), size=(bar_w, h_ah), radius=[2])
-                
-                h_ca = max(0.0, carro / max_val * ch)
-                Color(rgba=[0.90, 0.30, 0.35, 1] if carro < 0 else [0.07, 0.65, 0.60, 0.5])
-                RoundedRectangle(pos=(gx + 4, oy), size=(bar_w, h_ca), radius=[2])
 
+                for valor, x, color in (
+                        (ahorro, gx - bar_w - 3, [0.07, 0.65, 0.60, 1]),
+                        (carro, gx + 3,
+                         [0.90, 0.30, 0.35, 1] if carro < 0
+                         else [0.07, 0.65, 0.60, 0.5])):
+                    y_val = _y(valor)
+                    Color(rgba=color)
+                    RoundedRectangle(
+                        pos=(x, min(cero_y, y_val)),
+                        size=(bar_w, abs(y_val - cero_y)),
+                        radius=[2])
 
-MESES_NOMBRES = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-]
 
 class CalendarScreen(Screen):
     mes_anio_label = StringProperty('')
@@ -3434,7 +3789,7 @@ class CalendarScreen(Screen):
         cur.execute("""
             SELECT fecha,
                    SUM(CASE
-                        WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - comision
+                        WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria = 'Viaje InDrive' THEN monto - COALESCE(comision, 0)
                         WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Ingreso' AND categoria != 'Viaje InDrive' THEN monto
                         WHEN cuenta = 'Ahorro InDrive' AND tipo = 'Gasto' THEN -monto
                         ELSE 0
@@ -3703,7 +4058,8 @@ class AccountingMonthItem(BoxLayout):
     etiqueta : mes ya armado, p. ej. "Sep 2025"
     ingresos : plata que entrio en el mes (bruta)
     egresos  : gastos del mes mas las comisiones de la app
-    balance  : ingresos - egresos, el mismo numero que da "Ganancia por Mes"
+    balance  : ingresos - egresos. No siempre da lo mismo que "Ganancia por
+               Mes": el contable incluye los Retiros y la ganancia no.
     margen   : balance sobre ingresos en %, o None si no hubo ingresos
     """
 

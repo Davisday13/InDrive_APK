@@ -256,7 +256,7 @@ def disparar(dt):
         # (c) un dia SIN sesion, el Km InDrive solo si crea la fila:
         # no hay a donde sumarle los km.
         scr = _scr()
-        scr.txt_fecha.text = "20/10/2026"
+        scr.txt_fecha.text = "14/05/2019"
         scr.txt_km_cliente.text = "7"
         scr.save_viaje()
 
@@ -264,7 +264,7 @@ def disparar(dt):
         conn = sqlite3.connect(main.writable_db_path)
         filas = conn.execute(
             "SELECT monto, km, km_cliente FROM transacciones"
-            " WHERE categoria = 'Viaje InDrive' AND fecha = '2026-10-20'"
+            " WHERE categoria = 'Viaje InDrive' AND fecha = '2019-05-14'"
         ).fetchall()
         conn.close()
         chk(filas == [(0.0, 0.0, 7.0)],
@@ -276,18 +276,18 @@ def disparar(dt):
         # los km del app tienen que ir a la sesion (viajes/km), no a la
         # ultima fila del dia.
         scr = _scr()
-        scr.txt_fecha.text = "21/10/2026"
+        scr.txt_fecha.text = "15/05/2019"
         scr.txt_bruto.text = "30"
         scr.txt_km.text = "80"
         scr.txt_viajes.text = "10"
         scr.save_viaje()
-        scr.txt_fecha.text = "21/10/2026"
+        scr.txt_fecha.text = "15/05/2019"
         scr.txt_bruto.text = "4"
         scr.save_viaje()
 
     def paso14():
         scr = _scr()
-        scr.txt_fecha.text = "21/10/2026"
+        scr.txt_fecha.text = "15/05/2019"
         scr.txt_km_cliente.text = "43"
         scr.save_viaje()
 
@@ -295,11 +295,11 @@ def disparar(dt):
         conn = sqlite3.connect(main.writable_db_path)
         sesion = conn.execute(
             "SELECT monto, km, viajes, km_cliente FROM transacciones"
-            " WHERE fecha = '2026-10-21' AND km > 0"
+            " WHERE fecha = '2019-05-15' AND km > 0"
         ).fetchall()
         suelta = conn.execute(
             "SELECT monto, km_cliente FROM transacciones"
-            " WHERE fecha = '2026-10-21' AND km = 0 AND monto = 4"
+            " WHERE fecha = '2019-05-15' AND km = 0 AND monto = 4"
         ).fetchall()
         conn.close()
         chk(sesion == [(30.0, 80.0, 10, 43.0)],
