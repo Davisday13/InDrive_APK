@@ -89,7 +89,7 @@ def close_db(conn):
     cloud_db.sync_after_write()
 
 def mostrar_error(mensaje):
-    """Muestra un popup de aviso cuando falta un campo obligatorio."""
+    """Muestra un popup de aviso (campo faltante, error de formato, etc.)."""
     from kivy.uix.boxlayout import BoxLayout as BL
     from kivy.uix.button import Button as Btn
     content = BL(orientation='vertical', spacing=10, padding=15)
@@ -113,7 +113,7 @@ def mostrar_error(mensaje):
     content.add_widget(lbl)
     content.add_widget(btn_ok)
     popup = Popup(
-        title='⚠️ Campo requerido',
+        title='Aviso',
         content=content,
         size_hint=(0.8, 0.35),
         auto_dismiss=False
@@ -3303,6 +3303,256 @@ def _desglose_egresos(filas, meses, tope=5):
     return salida, total
 
 
+TIPO_XLSX = ("application/vnd.openxmlformats-officedocument"
+             ".spreadsheetml.sheet")
+
+
+def _xml_escapar(texto):
+    """Texto seguro para meterlo dentro de un XML del .xlsx."""
+    return (str(texto).replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;")
+            .replace("'", "&apos;"))
+
+
+def _columna_xlsx(numero):
+    """1 -> A, 26 -> Z, 27 -> AA."""
+    letras = ""
+    while numero > 0:
+        numero, resto = divmod(numero - 1, 26)
+        letras = chr(65 + resto) + letras
+    return letras
+
+
+def _celda_xlsx(referencia, valor, estilo=None):
+    """Una celda del .xlsx: numero, texto o vacia."""
+    atributo = ' s="%s"' % estilo if estilo else ""
+    if valor is None or valor == "":
+        return '<c r="%s"%s/>' % (referencia, atributo)
+    if isinstance(valor, bool):
+        return '<c r="%s"%s t="b"><v>%d</v></c>' % (
+            referencia, atributo, 1 if valor else 0)
+    if isinstance(valor, (int, float)):
+        numero = float(valor)
+        if numero != numero or numero in (float("inf"), float("-inf")):
+            return '<c r="%s"%s/>' % (referencia, atributo)
+        if estilo == "2":
+            texto = "%.2f" % numero
+        else:
+            texto = ("%.6f" % numero).rstrip("0").rstrip(".") or "0"
+        return '<c r="%s"%s><v>%s</v></c>' % (referencia, atributo, texto)
+    return ('<c r="%s"%s t="inlineStr"><is><t xml:space="preserve">%s</t>'
+            '</is></c>' % (referencia, atributo, _xml_escapar(valor)))
+
+
+def _hoja_xlsx(filas, columnas_dinero=(), anchos=()):
+    """XML de una hoja: encabezado en negrita y fijo al desplazar."""
+    partes = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+              '<worksheet xmlns="http://schemas.openxmlformats.org/'
+              'spreadsheetml/2006/main">',
+              '<sheetViews><sheetView workbookViewId="0">'
+              '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft"'
+              ' state="frozen"/></sheetView></sheetViews>']
+    if anchos:
+        partes.append("<cols>")
+        for indice, ancho in enumerate(anchos, start=1):
+            partes.append('<col min="%d" max="%d" width="%s" customWidth="1"/>'
+                          % (indice, indice, ancho))
+        partes.append("</cols>")
+    partes.append("<sheetData>")
+    for fila_numero, fila in enumerate(filas, start=1):
+        if not fila:
+            continue
+        partes.append('<row r="%d">' % fila_numero)
+        for columna_numero, valor in enumerate(fila, start=1):
+            referencia = "%s%d" % (_columna_xlsx(columna_numero), fila_numero)
+            estilo = None
+            if fila_numero == 1:
+                estilo = "1"
+            elif columna_numero in columnas_dinero:
+                estilo = "2"
+            partes.append(_celda_xlsx(referencia, valor, estilo))
+        partes.append("</row>")
+    partes.append("</sheetData></worksheet>")
+    return "".join(partes)
+
+
+def _construir_xlsx(hojas):
+    """Arma un .xlsx completo (ZIP + XML) con la libreria estandar.
+
+    openpyxl no tiene receta para Android y no se puede meter en el APK,
+    asi que el libro se escribe a mano: es un ZIP con unos pocos XML.
+
+    hojas: [(nombre, filas, columnas_dinero, anchos), ...]
+    """
+    import io
+    import zipfile
+
+    contenidos = []
+    for nombre, filas, dinero, anchos in hojas:
+        contenidos.append((str(nombre)[:31], _hoja_xlsx(filas, dinero, anchos)))
+
+    total = len(contenidos)
+    tipos = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/'
+             'content-types">',
+             '<Default Extension="rels" ContentType="application/vnd.'
+             'openxmlformats-package.relationships+xml"/>',
+             '<Default Extension="xml" ContentType="application/xml"/>',
+             '<Override PartName="/xl/workbook.xml" ContentType="application/'
+             'vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+             '<Override PartName="/xl/styles.xml" ContentType="application/vnd.'
+             'openxmlformats-officedocument.spreadsheetml.styles+xml"/>']
+    for indice in range(1, total + 1):
+        tipos.append('<Override PartName="/xl/worksheets/sheet%d.xml" '
+                     'ContentType="application/vnd.openxmlformats-officedocument'
+                     '.spreadsheetml.worksheet+xml"/>' % indice)
+    tipos.append("</Types>")
+
+    raiz = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/'
+            '2006/relationships"><Relationship Id="rId1" Type="http://schemas.'
+            'openxmlformats.org/officeDocument/2006/relationships/'
+            'officeDocument" Target="xl/workbook.xml"/></Relationships>']
+
+    libro = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+             '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/'
+             '2006/main" xmlns:r="http://schemas.openxmlformats.org/'
+             'officeDocument/2006/relationships"><sheets>']
+    enlaces = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+               '<Relationships xmlns="http://schemas.openxmlformats.org/package/'
+               '2006/relationships">']
+    for indice, (nombre, _xml) in enumerate(contenidos, start=1):
+        libro.append('<sheet name="%s" sheetId="%d" r:id="rId%d"/>'
+                     % (_xml_escapar(nombre), indice, indice))
+        enlaces.append('<Relationship Id="rId%d" Type="http://schemas.'
+                       'openxmlformats.org/officeDocument/2006/relationships/'
+                       'worksheet" Target="worksheets/sheet%d.xml"/>'
+                       % (indice, indice))
+    libro.append("</sheets></workbook>")
+    enlaces.append('<Relationship Id="rId%d" Type="http://schemas.openxmlformats'
+                   '.org/officeDocument/2006/relationships/styles" '
+                   'Target="styles.xml"/>' % (total + 1))
+    enlaces.append("</Relationships>")
+
+    estilos = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+               '<styleSheet xmlns="http://schemas.openxmlformats.org/'
+               'spreadsheetml/2006/main">'
+               '<fonts count="2">'
+               '<font><sz val="11"/><name val="Calibri"/></font>'
+               '<font><b/><sz val="11"/><name val="Calibri"/></font>'
+               '</fonts>'
+               '<fills count="2">'
+               '<fill><patternFill patternType="none"/></fill>'
+               '<fill><patternFill patternType="gray125"/></fill>'
+               '</fills>'
+               '<borders count="1"><border/></borders>'
+               '<cellStyleXfs count="1">'
+               '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'
+               '</cellStyleXfs>'
+               '<cellStyles count="1">'
+               '<cellStyle name="Normal" xfId="0" builtinId="0"/>'
+               '</cellStyles>'
+               '<cellXfs count="3">'
+               '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+               '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"'
+               ' applyFont="1"/>'
+               '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0"'
+               ' applyNumberFormat="1"/>'
+               '</cellXfs>'
+               '</styleSheet>')
+
+    memoria = io.BytesIO()
+    with zipfile.ZipFile(memoria, "w", zipfile.ZIP_DEFLATED) as paquete:
+        paquete.writestr("[Content_Types].xml", "".join(tipos))
+        paquete.writestr("_rels/.rels", "".join(raiz))
+        paquete.writestr("xl/workbook.xml", "".join(libro))
+        paquete.writestr("xl/_rels/workbook.xml.rels", "".join(enlaces))
+        paquete.writestr("xl/styles.xml", estilos)
+        for indice, (_nombre, xml) in enumerate(contenidos, start=1):
+            paquete.writestr("xl/worksheets/sheet%d.xml" % indice, xml)
+    return memoria.getvalue()
+
+
+def _escribir_en_descargas(datos, nombre):
+    """Deja el archivo en la carpeta Descargas del telefono.
+
+    Devuelve el nombre visible ("Descargas/...") o "" si no estamos en
+    Android o si el sistema no lo permite (entonces se usa la carpeta
+    privada de la app).
+    """
+    try:
+        from jnius import autoclass
+    except Exception:
+        return ""
+    try:
+        actividad = autoclass("org.kivy.android.PythonActivity").mActivity
+        if actividad is None:
+            return ""
+        version = autoclass("android.os.Build$VERSION")
+        Medio = autoclass("android.os.Environment")
+        if int(version.SDK_INT) >= 29:
+            # Android 10+: MediaStore es la unica forma limpia de escribir
+            # en Descargas sin pedir permisos de almacenamiento.
+            Descargas = autoclass("android.provider.MediaStore$Downloads")
+            Valores = autoclass("android.content.ContentValues")
+            valores = Valores()
+            valores.put("_display_name", nombre)
+            valores.put("mime_type", TIPO_XLSX)
+            valores.put("relative_path", Medio.DIRECTORY_DOWNLOADS)
+            resolvedor = actividad.getContentResolver()
+            uri = resolvedor.insert(Descargas.EXTERNAL_CONTENT_URI, valores)
+            if uri is None:
+                return ""
+            try:
+                salida = resolvedor.openOutputStream(uri)
+                try:
+                    salida.write(datos)
+                    salida.flush()
+                finally:
+                    salida.close()
+            except Exception:
+                # No dejamos un archivo vacio en Descargas.
+                try:
+                    resolvedor.delete(uri, None, None)
+                except Exception:
+                    pass
+                raise
+            return "Descargas/" + nombre
+        carpeta = Medio.getExternalStoragePublicDirectory(
+            Medio.DIRECTORY_DOWNLOADS)
+        ruta = os.path.join(str(carpeta.getAbsolutePath()), nombre)
+        with open(ruta, "wb") as archivo:
+            archivo.write(datos)
+        return ruta
+    except Exception as exc:
+        print("No se pudo escribir en Descargas: %r" % (exc,))
+        return ""
+
+
+def _guardar_excel(datos, nombre):
+    """Guarda el .xlsx donde el usuario pueda abrirlo. Devuelve la ruta."""
+    publico = _escribir_en_descargas(datos, nombre)
+    if publico:
+        return publico
+    try:
+        app = App.get_running_app()
+        carpeta = app.user_data_dir if app else None
+    except Exception:
+        carpeta = None
+    if not carpeta:
+        carpeta = os.path.dirname(os.path.abspath(__file__))
+    try:
+        if not os.path.exists(carpeta):
+            os.makedirs(carpeta)
+        ruta = os.path.join(carpeta, nombre)
+        with open(ruta, "wb") as archivo:
+            archivo.write(datos)
+        return ruta
+    except Exception as exc:
+        print("No se pudo guardar el Excel: %r" % (exc,))
+        return None
+
+
 def exportar_gastos_excel():
     """Exporta todos los gastos registrados a un archivo Excel (.xlsx).
 
@@ -3314,13 +3564,7 @@ def exportar_gastos_excel():
         (casa_pagos.gasto_*).
     Devuelve la ruta del archivo generado o None si falla.
     """
-    import os
     from datetime import datetime
-    try:
-        import openpyxl
-    except ImportError:
-        mostrar_error("openpyxl no está instalado.\nNo se puede exportar a Excel.")
-        return None
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -3375,41 +3619,42 @@ def exportar_gastos_excel():
 
     conn.close()
 
-    # Armar el libro de Excel
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Gastos"
-
+    # Armamos el libro: detalle completo + resumen por origen y por mes
     encabezados = ["Fecha", "Origen", "Concepto / Categoría", "Monto",
                    "Tipo", "Detalle / Descripción"]
-    ws.append(encabezados)
-    for fila in filas:
-        ws.append(fila)
-
+    detalle = [encabezados] + list(filas)
     total = sum(f[3] for f in filas)
-    ws.append([])
-    ws.append(["TOTAL", "", "", total, "", ""])
+    detalle.append([])
+    detalle.append(["TOTAL", "", "", total, "", ""])
+
+    por_origen = {}
+    por_mes = {}
+    for fecha, origen, _concepto, monto, _tipo, _detalle in filas:
+        por_origen[origen] = por_origen.get(origen, 0.0) + monto
+        mes = (fecha or "")[:7] or "-"
+        por_mes[mes] = por_mes.get(mes, 0.0) + monto
+
+    resumen = [["Origen", "Monto"]]
+    for origen, monto in sorted(por_origen.items(), key=lambda par: -par[1]):
+        resumen.append([origen, monto])
+    resumen.append([])
+    resumen.append(["TOTAL", total])
+
+    mensual = [["Mes", "Monto"]]
+    for mes in sorted(por_mes, reverse=True):
+        mensual.append([mes, por_mes[mes]])
+    mensual.append([])
+    mensual.append(["TOTAL", total])
+
+    datos = _construir_xlsx([
+        ("Gastos", detalle, (4,), (12, 13, 28, 12, 16, 42)),
+        ("Resumen por origen", resumen, (2,), (26, 14)),
+        ("Por mes", mensual, (2,), (12, 14)),
+    ])
 
     # Nombre del archivo con fecha y hora para no sobrescribir
     nombre = "Gastos_InDrive_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
-
-    try:
-        from kivy.app import App
-        app = App.get_running_app()
-        carpeta = app.user_data_dir if app else os.path.dirname(
-            os.path.abspath(__file__))
-    except Exception:
-        carpeta = os.path.dirname(os.path.abspath(__file__))
-
-    if not os.path.exists(carpeta):
-        try:
-            os.makedirs(carpeta)
-        except Exception:
-            carpeta = os.path.dirname(os.path.abspath(__file__))
-
-    ruta = os.path.join(carpeta, nombre)
-    wb.save(ruta)
-    return ruta
+    return _guardar_excel(datos, nombre)
 
 
 # Retiros individuales del fondo por mes, para listar cada retiro aparte.

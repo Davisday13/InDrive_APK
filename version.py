@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.19"
-VERSION_CODE = 129
-NOTA = "Estadísticas: nueva lista 'Retiros por Mes' con cada retiro, su fecha y el total del mes, y botón para exportar a Excel TODO lo gastado (viajes, gastos de la casa y retiros). Con la misma actualización automática de siempre."
+VERSION = "1.1.20"
+VERSION_CODE = 130
+NOTA = "Excel arreglado: el botón ya no depende de openpyxl (no existe para Android). Genera el .xlsx con sus propias librerías y lo guarda en la carpeta Descargas del teléfono, listo para abrir con Excel. Trae hoja de detalle, resumen por origen y totales por mes."
