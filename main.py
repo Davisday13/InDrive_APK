@@ -1140,6 +1140,14 @@ ScreenManager:
                     size_hint_x: None
                     width: '52dp'
                 Button:
+                    text: "1M"
+                    background_normal: ''
+                    font_size: '12sp'
+                    bold: True
+                    background_color: (0.07, 0.65, 0.60, 1) if root.periodo == '1m' else (0.94, 0.94, 0.96, 1)
+                    color: (1, 1, 1, 1) if root.periodo == '1m' else (0.08, 0.08, 0.09, 1)
+                    on_press: root.cambiar_periodo('1m')
+                Button:
                     text: "3M"
                     background_normal: ''
                     font_size: '12sp'
@@ -1863,20 +1871,20 @@ ScreenManager:
                 spacing: 8
 
                 Label:
-                    text: "Exportar Gastos a Excel"
+                    text: "Exportar a Excel"
                     font_size: '14sp'
                     bold: True
                     color: 0.08, 0.08, 0.09, 1
                     size_hint_y: None
                     height: '24dp'
                 Label:
-                    text: "Genera un archivo .xlsx con todo lo que se gastó"
+                    text: "Todo lo gastado + libro de auditoría para el contable (ingresos, egresos, casa y retiros)"
                     font_size: '10sp'
                     color: 0.3, 0.3, 0.35, 1
                     halign: 'left'
                     valign: 'middle'
                     size_hint_y: None
-                    height: '14dp'
+                    height: '28dp'
                     text_size: self.width, None
 
                 AccentButton:
@@ -1884,6 +1892,12 @@ ScreenManager:
                     size_hint_y: None
                     height: '40dp'
                     on_press: root.exportar_excel()
+
+                AccentButton:
+                    text: "Excel del contable (periodo)"
+                    size_hint_y: None
+                    height: '40dp'
+                    on_press: root.exportar_contable()
 
                 Label:
                     id: lbl_excel_ruta
@@ -3146,7 +3160,7 @@ UMBRAL_COMPARATIVA = 0.60
 UMBRAL_COMPARATIVA_AJUSTADA = 0.45
 
 # Ventanas del selector de periodo. None = todo el historial.
-PERIODOS_ESTADISTICA = {'3m': 3, '6m': 6, '12m': 12, 'todo': None}
+PERIODOS_ESTADISTICA = {'1m': 1, '3m': 3, '6m': 6, '12m': 12, 'todo': None}
 
 
 def _semaforo(valor, bueno, ajustado, mayor_es_mejor=True):
@@ -3657,6 +3671,365 @@ def exportar_gastos_excel():
     return _guardar_excel(datos, nombre)
 
 
+def _rango_exportacion(cur, periodo):
+    """(desde_mes, hasta_mes) de la ventana elegida, como en la pantalla.
+
+    Se ancla al ultimo dato cargado (no a hoy) y None en desde_mes es "todo".
+    """
+    try:
+        cur.execute("SELECT MAX(fecha) FROM transacciones")
+        max_fecha = cur.fetchone()[0]
+    except Exception:
+        max_fecha = None
+    if not max_fecha:
+        return (None, None)
+    hasta = str(max_fecha)[:7]
+    meses = PERIODOS_ESTADISTICA.get(periodo)
+    if meses is None:
+        return (None, hasta)
+    return (_mes_menos(hasta, meses - 1), hasta)
+
+
+def _mes_de_fecha(texto):
+    """'AAAA-MM' de una fecha escrita de cualquier forma; '' si no se puede.
+
+    En la casa las fechas se cargaron a mano y conviven 2026-11-11,
+    11/11/2026, 11/112026 (sin la barra) y 2026/11/11.
+    """
+    texto = str(texto or "").strip()
+    if not texto:
+        return ""
+    limpio = texto.replace("-", "/").replace(".", "/")
+    partes = [p for p in limpio.split("/") if p]
+    try:
+        if len(partes) == 3:
+            if len(partes[0]) == 4:          # AAAA/MM/DD
+                anio, mes = int(partes[0]), int(partes[1])
+            else:                             # DD/MM/AAAA
+                anio, mes = int(partes[2]), int(partes[1])
+        elif len(partes) == 2:
+            if len(partes[0]) == 4:           # AAAA/MM
+                anio, mes = int(partes[0]), int(partes[1])
+            elif len(partes[1]) == 6:         # 15/082026
+                anio, mes = int(partes[1][2:]), int(partes[1][:2])
+            else:                             # DD/MMAAAA
+                anio, mes = int(partes[1]), int(partes[0])
+        else:
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    if 1 <= mes <= 12 and 1900 < anio < 2200:
+        return "%04d-%02d" % (anio, mes)
+    return ""
+
+
+def _etiqueta_periodo(desde, hasta, periodo):
+    if periodo == 'todo' or not desde or not hasta:
+        return "Todo el historial"
+    if desde == hasta:
+        return _etiqueta_mes_largo(hasta)
+    return "%s - %s" % (_etiqueta_mes_largo(desde), _etiqueta_mes_largo(hasta))
+
+
+def exportar_contable_excel(periodo="todo"):
+    """Libro Excel de auditoria: lo que entra, lo que sale y la casa.
+
+    Pensado para el contable: un solo archivo con el periodo elegido en la
+    pantalla de estadisticas ('3m', '6m', '12m' o 'todo') y estas hojas:
+      - Resumen: ingresos, comisiones, egresos, retiros, actividad y saldo
+      - Movimientos: cada movimiento con saldo corrido
+      - En que se va el dinero: rubros por mes, con % del total
+      - Por mes: ingresos, comisiones, gastos, retiros y neto
+      - Retiros: cada retiro individual con fecha y descripcion
+      - Casa: alquiler, luz, aseo, deposito y gastos de la casa
+    Devuelve la ruta del archivo o None si falla.
+    """
+    from datetime import datetime
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    desde, hasta = _rango_exportacion(cur, periodo)
+
+    filtro = "cuenta = 'Ahorro InDrive'"
+    args = []
+    if desde:
+        filtro += " AND substr(fecha, 1, 7) >= ?"
+        args.append(desde)
+    if hasta:
+        filtro += " AND substr(fecha, 1, 7) <= ?"
+        args.append(hasta)
+
+    # --- movimientos del periodo (cronologico, para el saldo corrido) ---
+    cur.execute("""
+        SELECT fecha, tipo, categoria, descripcion, monto, comision,
+               viajes, km, COALESCE(km_cliente, 0)
+        FROM transacciones
+        WHERE %s
+        ORDER BY fecha ASC, id ASC
+    """ % filtro, args)
+    movimientos = cur.fetchall()
+
+    ingresos = comisiones = gastos = retiros = 0.0
+    viajes = km_app = km_real = 0.0
+    filas_mov = [["Fecha", "Tipo", "Categoría", "Descripción", "Monto",
+                  "Comisión", "Neto", "Viajes", "Km app", "Km real",
+                  "Saldo del fondo"]]
+    saldo_corrido = 0.0
+    for fecha, tipo, categoria, descripcion, monto, comision, v, k, kc in movimientos:
+        monto = float(monto or 0)
+        comision = float(comision or 0)
+        if tipo == 'Ingreso':
+            ingresos += monto
+            comisiones += comision
+            viajes += float(v or 0)
+            km_app += float(k or 0)
+            km_real += float(kc or 0)
+            neto_fila = monto - comision
+        else:
+            gastos += monto
+            if categoria == 'Retiro':
+                retiros += monto
+            neto_fila = -monto
+        saldo_corrido += neto_fila
+        filas_mov.append([
+            str(fecha)[:10] if fecha else '-',
+            str(tipo or ''), str(categoria or ''), str(descripcion or '-'),
+            monto, comision, neto_fila,
+            int(v or 0), float(k or 0), float(kc or 0),
+            saldo_corrido,
+        ])
+    filas_mov.append([])
+    filas_mov.append(["TOTAL", "", "", "", ingresos, comisiones,
+                      ingresos - comisiones - gastos, int(viajes),
+                      km_app, km_real, saldo_corrido])
+
+    # --- saldo actual del fondo, sin recorte de periodo ---
+    cur.execute("""
+        SELECT
+          SUM(CASE WHEN tipo = 'Ingreso' THEN monto - COALESCE(comision, 0)
+                   ELSE -monto END)
+        FROM transacciones WHERE cuenta = 'Ahorro InDrive'
+    """)
+    saldo_actual = float(cur.fetchone()[0] or 0.0)
+
+    # --- casa: alquiler, servicios y gastos ---
+    cur.execute("""
+        SELECT fecha_pago, monto, mes_corresponde, pendiente, luz,
+               tasa_aseo, deposito, gasto_fecha, gasto_concepto, gasto_monto
+        FROM casa_pagos
+        ORDER BY fecha_pago DESC, id DESC
+    """)
+    pagos_casa = cur.fetchall()
+    cur.execute("""
+        SELECT fecha, concepto, monto, tipo
+        FROM casa_gastos
+        ORDER BY fecha DESC, id DESC
+    """)
+    gastos_casa = cur.fetchall()
+
+    def _mes_casa(fila_pago):
+        """Mes del pago: fecha_pago, mes que corresponde o fecha del gasto."""
+        return (_mes_de_fecha(fila_pago[0]) or _mes_de_fecha(fila_pago[2])
+                or _mes_de_fecha(fila_pago[7]))
+
+    def _dentro(mes):
+        if not desde:
+            return True                 # 'todo': todo el historial
+        if not mes:
+            return False
+        return ((not desde or mes >= desde) and (not hasta or mes <= hasta))
+
+    total_pagos_casa = len(pagos_casa)
+    total_gastos_casa = len(gastos_casa)
+    pagos_casa = [f for f in pagos_casa if _dentro(_mes_casa(f))]
+    gastos_casa = [f for f in gastos_casa if _dentro(_mes_de_fecha(f[0]))]
+    fuera_casa = ((total_pagos_casa - len(pagos_casa)) +
+                  (total_gastos_casa - len(gastos_casa)))
+
+    alquiler = sum(float(f[1] or 0) for f in pagos_casa)
+    luz = sum(float(f[4] or 0) for f in pagos_casa)
+    aseo = sum(float(f[5] or 0) for f in pagos_casa)
+    deposito = sum(float(f[6] or 0) for f in pagos_casa)
+    declarados = sum(float(f[9] or 0) for f in pagos_casa)
+    sueltos = sum(float(f[2] or 0) for f in gastos_casa)
+    total_casa = declarados + sueltos
+
+    # --- rubros del periodo (para "en que se va el dinero") ---
+    cur.execute("""
+        SELECT strftime('%%Y-%%m', fecha) as mes,
+               CASE WHEN tipo = 'Ingreso' THEN 'Comisiones InDrive'
+                    ELSE categoria END as rubro,
+               SUM(CASE WHEN tipo = 'Gasto' THEN monto
+                        ELSE COALESCE(comision, 0) END) as egreso
+        FROM transacciones
+        WHERE %s AND (tipo = 'Gasto' OR COALESCE(comision, 0) > 0)
+        GROUP BY mes, rubro
+    """ % filtro, args)
+    filas_rubro = cur.fetchall()
+
+    meses_rubro = sorted({str(f[0]) for f in filas_rubro if f[0]}, reverse=True)
+    rubros = {}
+    total_rubros = 0.0
+    for mes, rubro, egreso in filas_rubro:
+        nombre = RUBROS_EGRESO.get(str(rubro), str(rubro))
+        egreso = float(egreso or 0)
+        rubros.setdefault(nombre, {})
+        rubros[nombre][str(mes)] = rubros[nombre].get(str(mes), 0.0) + egreso
+        total_rubros += egreso
+
+    filas_va = [["Rubro"] + meses_rubro + ["Total", "% del total"]]
+    for nombre, por_mes in sorted(rubros.items(),
+                                  key=lambda par: -sum(par[1].values())):
+        total_rubro = sum(por_mes.values())
+        porcentaje = (total_rubro / total_rubros * 100.0) if total_rubros else 0.0
+        filas_va.append(
+            [nombre] + [por_mes.get(mes, 0.0) for mes in meses_rubro] +
+            [total_rubro, round(porcentaje, 2)])
+    if rubros:
+        filas_va.append(
+            ["TOTAL"] +
+            [sum(por_mes.get(mes, 0.0) for por_mes in rubros.values())
+             for mes in meses_rubro] + [total_rubros, 100.0])
+
+    # --- resumen por mes ---
+    cur.execute("""
+        SELECT strftime('%%Y-%%m', fecha) as mes,
+               SUM(CASE WHEN tipo = 'Ingreso' THEN monto ELSE 0 END),
+               SUM(CASE WHEN tipo = 'Ingreso' THEN COALESCE(comision, 0)
+                        ELSE 0 END),
+               SUM(CASE WHEN tipo = 'Gasto' THEN monto ELSE 0 END),
+               SUM(CASE WHEN tipo = 'Gasto' AND categoria = 'Retiro'
+                        THEN monto ELSE 0 END)
+        FROM transacciones
+        WHERE %s
+        GROUP BY mes
+        ORDER BY mes DESC
+    """ % filtro, args)
+    por_mes = cur.fetchall()
+
+    filas_mes = [["Mes", "Ingresos", "Comisiones", "Ingreso neto", "Gastos",
+                  "de eso Retiros", "Neto"]]
+    tot_ing = tot_com = tot_gas = tot_ret = 0.0
+    for mes, ing, com, gas, ret in por_mes:
+        ing = float(ing or 0)
+        com = float(com or 0)
+        gas = float(gas or 0)
+        ret = float(ret or 0)
+        tot_ing += ing
+        tot_com += com
+        tot_gas += gas
+        tot_ret += ret
+        filas_mes.append([_etiqueta_mes_largo(str(mes)) if mes else '-',
+                          ing, com, ing - com, gas, ret, ing - com - gas])
+    filas_mes.append([])
+    filas_mes.append(["TOTAL", tot_ing, tot_com, tot_ing - tot_com, tot_gas,
+                      tot_ret, tot_ing - tot_com - tot_gas])
+
+    # --- retiros individuales ---
+    cur.execute("""
+        SELECT fecha, descripcion, monto
+        FROM transacciones
+        WHERE %s AND categoria = 'Retiro'
+        ORDER BY fecha DESC, id DESC
+    """ % filtro, args)
+    filas_ret = [["Fecha", "Descripción", "Monto"]]
+    total_retiros = 0.0
+    for fecha, descripcion, monto in cur.fetchall():
+        monto = float(monto or 0)
+        total_retiros += monto
+        filas_ret.append([str(fecha)[:10] if fecha else '-',
+                          str(descripcion or '-'), monto])
+    filas_ret.append([])
+    filas_ret.append(["TOTAL", "", total_retiros])
+
+    # --- casa: pagos y gastos ---
+    filas_casa = [["Mes", "Fecha pago", "Monto", "Mes que corresponde",
+                   "Pendiente", "Luz", "Aseo", "Depósito",
+                   "Gasto declarado (fecha)", "Gasto declarado (concepto)",
+                   "Gasto declarado (monto)"]]
+    for fila in pagos_casa:
+        filas_casa.append([
+            _mes_casa(fila) or '-',
+            str(fila[0])[:10] if fila[0] else '-',
+            float(fila[1] or 0), str(fila[2] or '-'), float(fila[3] or 0),
+            float(fila[4] or 0), float(fila[5] or 0), float(fila[6] or 0),
+            str(fila[7])[:10] if fila[7] else '-',
+            str(fila[8] or '-'), float(fila[9] or 0),
+        ])
+    filas_casa.append([])
+    filas_casa.append(["", "TOTAL", alquiler, "", "", luz, aseo])
+    filas_casa.append([])
+    filas_casa.append(["Gastos sueltos de la casa"])
+    filas_casa.append(["Mes", "Fecha", "Concepto", "Monto", "Tipo"])
+    for fecha, concepto, monto, tipo in gastos_casa:
+        filas_casa.append([_mes_de_fecha(fecha) or '-',
+                          str(fecha)[:10] if fecha else '-',
+                          str(concepto or '-'), float(monto or 0),
+                          str(tipo or 'casa')])
+    filas_casa.append([])
+    filas_casa.append(["", "TOTAL gastos de casa", "", sueltos])
+
+    # --- portada / resumen ---
+    resultado_fondo = ingresos - comisiones - gastos
+    resultado_casa = alquiler - total_casa
+    filas_resumen = [
+        ["Concepto", "Monto"],
+        ["Periodo", _etiqueta_periodo(desde, hasta, periodo)],
+        ["Generado", datetime.now().strftime("%d/%m/%Y %H:%M")],
+        [],
+        ["INGRESOS DEL NEGOCIO"],
+        ["Ingresos brutos (viajes y otros)", ingresos],
+        ["Comisiones de la app", comisiones],
+        ["Ingreso neto (bruto - comisiones)", ingresos - comisiones],
+        [],
+        ["EGRESOS DEL FONDO"],
+        ["Gastos del fondo (incluye retiros)", gastos],
+        ["  de eso, retiros al dueño", retiros],
+        ["RESULTADO DEL FONDO", resultado_fondo],
+        [],
+        ["CASA"],
+        ["Alquiler cobrado", alquiler],
+        ["Luz", luz],
+        ["Aseo", aseo],
+        ["Depósito", deposito],
+        ["Gastos declarados en pagos", declarados],
+        ["Gastos sueltos de casa", sueltos],
+        ["Total gastos de la casa", total_casa],
+        ["RESULTADO DE LA CASA (alquiler - gastos)", resultado_casa],
+    ]
+    if fuera_casa:
+        filas_resumen.append(
+            ["Registros de casa sin fecha legible o fuera del periodo",
+             str(fuera_casa)])
+    filas_resumen += [
+        [],
+        ["TOTAL GENERAL (fondo + casa)", resultado_fondo + resultado_casa],
+        ["Saldo actual del fondo", saldo_actual],
+        [],
+        ["ACTIVIDAD"],
+        ["Viajes registrados", int(viajes)],
+        ["Km de la app", km_app],
+        ["Km reales del carro", km_real],
+    ]
+
+    datos = _construir_xlsx([
+        ("Resumen", filas_resumen, (2,), (40, 18)),
+        ("Movimientos", filas_mov, (5, 6, 7, 11),
+         (12, 10, 18, 34, 12, 11, 12, 8, 10, 10, 14)),
+        ("En que se va el dinero", filas_va,
+         tuple(range(2, len(meses_rubro) + 3)),
+         (24,) + (11,) * len(meses_rubro) + (12, 11)),
+        ("Por mes", filas_mes, (2, 3, 4, 5, 6, 7), (18, 12, 11, 12, 12, 12, 12)),
+        ("Retiros", filas_ret, (3,), (12, 40, 12)),
+        ("Casa", filas_casa, (3, 5, 6, 7, 8, 11),
+         (10, 12, 11, 20, 11, 10, 10, 11, 20, 30, 18)),
+    ])
+
+    nombre = ("Auditoria_%s_%s.xlsx"
+              % (periodo, datetime.now().strftime("%Y%m%d_%H%M%S")))
+    return _guardar_excel(datos, nombre)
+
+
 # Retiros individuales del fondo por mes, para listar cada retiro aparte.
 # La tarjeta "en que se va la plata" solo suma el rubro "Retiros"; esta lista
 # muestra cada retiro con fecha y descripcion para poder auditar en que se fue.
@@ -3888,32 +4261,44 @@ class StatsScreen(Screen):
         except Exception:
             pass
 
+    def _avisar_excel(self, ruta, titulo):
+        """Popup con la ruta donde quedo el archivo generado."""
+        self.ids.lbl_excel_ruta.text = "Guardado: %s" % ruta
+        from kivy.uix.popup import Popup
+        from kivy.uix.label import Label as KivyLabel
+        from kivy.uix.boxlayout import BoxLayout
+        from kivy.uix.button import Button
+        content = BoxLayout(orientation='vertical', spacing=10, padding=15)
+        lbl = KivyLabel(
+            text="Archivo Excel generado:\n%s" % ruta,
+            font_size='13sp', color=[0.08, 0.08, 0.09, 1]
+        )
+        lbl.bind(size=lambda i, v: setattr(i, 'text_size', v))
+        btn_ok = Button(text='Aceptar', size_hint_y=None, height='40dp',
+                        background_color=[0.07, 0.65, 0.60, 1],
+                        color=[1, 1, 1, 1], bold=True)
+        content.add_widget(lbl)
+        content.add_widget(btn_ok)
+        popup = Popup(title=titulo, content=content,
+                      size_hint=(0.9, 0.4), auto_dismiss=False)
+        btn_ok.bind(on_press=popup.dismiss)
+        popup.open()
+
     def exportar_excel(self, *args):
-        """Genera el Excel con todos los gastos y avisa donde quedo guardado."""
+        """Excel con todo lo gastado (historico) y avisa donde quedo."""
         ruta = exportar_gastos_excel()
         if ruta:
-            self.ids.lbl_excel_ruta.text = "Guardado: %s" % ruta
-            from kivy.uix.popup import Popup
-            from kivy.uix.label import Label as KivyLabel
-            from kivy.uix.boxlayout import BoxLayout
-            from kivy.uix.button import Button
-            content = BoxLayout(orientation='vertical', spacing=10, padding=15)
-            lbl = KivyLabel(
-                text="Archivo Excel generado:\n%s" % ruta,
-                font_size='13sp', color=[0.08, 0.08, 0.09, 1]
-            )
-            lbl.bind(size=lambda i, v: setattr(i, 'text_size', v))
-            btn_ok = Button(text='Aceptar', size_hint_y=None, height='40dp',
-                            background_color=[0.07, 0.65, 0.60, 1],
-                            color=[1, 1, 1, 1], bold=True)
-            content.add_widget(lbl)
-            content.add_widget(btn_ok)
-            popup = Popup(title='Exportar a Excel', content=content,
-                          size_hint=(0.9, 0.4), auto_dismiss=False)
-            btn_ok.bind(on_press=popup.dismiss)
-            popup.open()
+            self._avisar_excel(ruta, "Exportar a Excel")
         else:
             mostrar_error("No se pudo generar el archivo Excel.")
+
+    def exportar_contable(self, *args):
+        """Libro de auditoria del periodo elegido (ingresos y egresos)."""
+        ruta = exportar_contable_excel(self.periodo)
+        if ruta:
+            self._avisar_excel(ruta, "Excel del contable")
+        else:
+            mostrar_error("No se pudo generar el libro de auditoría.")
 
     def _pintar_kpis(self, neto, km, km_c, viajes, neto_kc, km_kc):
         """Tarjetas de metas del conductor con su semáforo.
