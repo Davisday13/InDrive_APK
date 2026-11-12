@@ -1854,6 +1854,88 @@ ScreenManager:
                     height: self.minimum_height
                     spacing: 6
 
+            RoundedCard:
+                id: excel_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 12]
+                spacing: 8
+
+                Label:
+                    text: "Exportar Gastos a Excel"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '24dp'
+                Label:
+                    text: "Genera un archivo .xlsx con todo lo que se gastó"
+                    font_size: '10sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'left'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '14dp'
+                    text_size: self.width, None
+
+                AccentButton:
+                    text: "Exportar a Excel"
+                    size_hint_y: None
+                    height: '40dp'
+                    on_press: root.exportar_excel()
+
+                Label:
+                    id: lbl_excel_ruta
+                    text: ""
+                    font_size: '10sp'
+                    color: 0.07, 0.65, 0.60, 1
+                    halign: 'center'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '30dp'
+                    text_size: self.width - 20, None
+
+            RoundedCard:
+                id: retiros_card
+                size_hint_y: None
+                height: self.minimum_height
+                bg_color: [1, 1, 1, 1]
+                padding: [12, 12]
+                spacing: 8
+
+                Label:
+                    text: "Retiros por Mes"
+                    font_size: '14sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '24dp'
+                Label:
+                    text: "Cada retiro del fondo con fecha y descripcion (auditable)"
+                    font_size: '10sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    halign: 'left'
+                    valign: 'middle'
+                    size_hint_y: None
+                    height: '14dp'
+                    text_size: self.width, None
+
+                BoxLayout:
+                    id: list_retiros_mes
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: 4
+
+                Label:
+                    id: lbl_retiros_empty
+                    text: ""
+                    font_size: '11sp'
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '16dp'
+
 <CalendarScreen>:
     name: 'calendar'
     BoxLayout:
@@ -3221,6 +3303,182 @@ def _desglose_egresos(filas, meses, tope=5):
     return salida, total
 
 
+def exportar_gastos_excel():
+    """Exporta todos los gastos registrados a un archivo Excel (.xlsx).
+
+    Incluye:
+      - los Gastos de la cuenta 'Ahorro InDrive' (combustible, aporte,
+        retiros, otros), con sus retiros individuales por mes;
+      - los Gastos sueltos de la casa (casa_gastos);
+      - los gastos declarados dentro de los pagos de alquiler
+        (casa_pagos.gasto_*).
+    Devuelve la ruta del archivo generado o None si falla.
+    """
+    import os
+    from datetime import datetime
+    try:
+        import openpyxl
+    except ImportError:
+        mostrar_error("openpyxl no está instalado.\nNo se puede exportar a Excel.")
+        return None
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    filas = []
+
+    # 1) Gastos de la cuenta InDrive (incluye cada Retiro individual)
+    cur.execute("""
+        SELECT fecha, categoria, monto, descripcion, cuenta
+        FROM transacciones
+        WHERE tipo = 'Gasto'
+        ORDER BY fecha DESC
+    """)
+    for fecha, categoria, monto, descripcion, cuenta in cur.fetchall():
+        filas.append([
+            str(fecha)[:10] if fecha else '-',
+            'InDrive',
+            str(categoria) if categoria else '-',
+            float(monto or 0),
+            str(descripcion) if descripcion else '-',
+            str(cuenta) if cuenta else '-',
+        ])
+
+    # 2) Gastos sueltos de la casa
+    cur.execute("SELECT fecha, concepto, monto, tipo FROM casa_gastos ORDER BY fecha DESC")
+    for fecha, concepto, monto, tipo in cur.fetchall():
+        filas.append([
+            str(fecha)[:10] if fecha else '-',
+            'Casa',
+            str(concepto) if concepto else '-',
+            float(monto or 0),
+            str(tipo) if tipo else 'casa',
+            'Gasto de casa',
+        ])
+
+    # 3) Gastos declarados dentro de los pagos de alquiler
+    cur.execute("""
+        SELECT gasto_fecha, gasto_concepto, gasto_monto
+        FROM casa_pagos
+        WHERE (gasto_monto > 0 OR gasto_concepto IS NOT NULL)
+        ORDER BY gasto_fecha DESC
+    """)
+    for gasto_fecha, gasto_concepto, gasto_monto in cur.fetchall():
+        filas.append([
+            str(gasto_fecha)[:10] if gasto_fecha else '-',
+            'Casa (pago)',
+            str(gasto_concepto) if gasto_concepto else '-',
+            float(gasto_monto or 0),
+            '-',
+            'Gasto declarado en pago de alquiler',
+        ])
+
+    conn.close()
+
+    # Armar el libro de Excel
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Gastos"
+
+    encabezados = ["Fecha", "Origen", "Concepto / Categoría", "Monto",
+                   "Tipo", "Detalle / Descripción"]
+    ws.append(encabezados)
+    for fila in filas:
+        ws.append(fila)
+
+    total = sum(f[3] for f in filas)
+    ws.append([])
+    ws.append(["TOTAL", "", "", total, "", ""])
+
+    # Nombre del archivo con fecha y hora para no sobrescribir
+    nombre = "Gastos_InDrive_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
+
+    try:
+        from kivy.app import App
+        app = App.get_running_app()
+        carpeta = app.user_data_dir if app else os.path.dirname(
+            os.path.abspath(__file__))
+    except Exception:
+        carpeta = os.path.dirname(os.path.abspath(__file__))
+
+    if not os.path.exists(carpeta):
+        try:
+            os.makedirs(carpeta)
+        except Exception:
+            carpeta = os.path.dirname(os.path.abspath(__file__))
+
+    ruta = os.path.join(carpeta, nombre)
+    wb.save(ruta)
+    return ruta
+
+
+# Retiros individuales del fondo por mes, para listar cada retiro aparte.
+# La tarjeta "en que se va la plata" solo suma el rubro "Retiros"; esta lista
+# muestra cada retiro con fecha y descripcion para poder auditar en que se fue.
+SQL_RETIROS_MES = """
+    SELECT strftime('%Y-%m', fecha) as mes,
+           fecha, descripcion, monto
+    FROM transacciones
+    WHERE cuenta = 'Ahorro InDrive'
+      AND categoria = 'Retiro'
+    ORDER BY mes DESC, fecha DESC
+"""
+
+
+def _obtener_retiros_mensuales():
+    """Devuelve dict {mes: [(fecha, descripcion, monto), ...]} con todos los retiros."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(SQL_RETIROS_MES)
+    resultado = {}
+    for mes, fecha, descripcion, monto in cur.fetchall():
+        resultado.setdefault(mes, []).append(
+            (str(fecha)[:10] if fecha else '-',
+             str(descripcion) if descripcion else '-',
+             float(monto or 0)))
+    conn.close()
+    return resultado
+
+
+class RetiroMesItem(BoxLayout):
+    """Fila de un retiro individual en la lista 'Retiros por Mes'."""
+
+    def __init__(self, fecha, descripcion, monto, **kwargs):
+        super().__init__(**kwargs)
+        self.orientation = 'horizontal'
+        self.size_hint_y = None
+        self.height = '40dp'
+        self.padding = [6, 4]
+        self.spacing = 4
+
+        with self.canvas.before:
+            Color(rgba=[1, 1, 1, 1])
+            self.k_rect = RoundedRectangle(size=self.size, pos=self.pos, radius=[6])
+        self.bind(size=self._update_rect, pos=self._update_rect)
+
+        lbl_fecha = Label(text=str(fecha), font_size='11sp', bold=True,
+                          color=TEXT_PRIMARY, halign='left', valign='middle',
+                          size_hint_x=0.22)
+        lbl_fecha.bind(size=lbl_fecha.setter('text_size'))
+
+        lbl_desc = Label(text=str(descripcion), font_size='11sp',
+                         color=[0.08, 0.08, 0.09, 1], halign='left', valign='middle',
+                         size_hint_x=0.48)
+        lbl_desc.bind(size=lbl_desc.setter('text_size'))
+
+        lbl_monto = Label(text="-$%s" % format(monto, ",.2f"), font_size='12sp', bold=True,
+                          color=NEG, halign='right', valign='middle', size_hint_x=0.30)
+        lbl_monto.bind(size=lbl_monto.setter('text_size'))
+
+        self.add_widget(lbl_fecha)
+        self.add_widget(lbl_desc)
+        self.add_widget(lbl_monto)
+
+    def _update_rect(self, instance, value):
+        self.k_rect.size = self.size
+        self.k_rect.pos = self.pos
+
+
 def _margen_color(margen):
     """Color del % de margen: verde sano, naranja justito, rojo en rojo."""
     if margen is None:
@@ -3350,6 +3608,33 @@ class StatsScreen(Screen):
         self.ids.lbl_expense_empty.text = ("" if mezcla
                                            else "Sin egresos en este mes")
 
+    def _pintar_retiros(self, *args):
+        """Lista cada retiro individual del fondo, agrupado por mes, con su
+        descripcion para poder auditar en que se fue la plata."""
+        lista = self.ids.list_retiros_mes
+        lista.clear_widgets()
+        retiros = _obtener_retiros_mensuales()
+        total_retiros = 0.0
+        if not retiros:
+            self.ids.lbl_retiros_empty.text = "Sin retiros registrados"
+            return
+        self.ids.lbl_retiros_empty.text = ""
+        for mes in sorted(retiros.keys(), reverse=True):
+            lbl_mes = Label(text=_etiqueta_mes_largo(mes), font_size='11sp', bold=True,
+                            color=TEXT_PRIMARY, size_hint_y=None, height='20dp',
+                            halign='left', valign='middle')
+            lbl_mes.bind(size=lbl_mes.setter('text_size'))
+            lista.add_widget(lbl_mes)
+            for fecha, descripcion, monto in retiros[mes]:
+                lista.add_widget(RetiroMesItem(fecha, descripcion, monto))
+                total_retiros += monto
+        lbl_total = Label(text="Total retirado: -$%s" % format(total_retiros, ",.2f"),
+                          font_size='12sp', bold=True, color=NEG,
+                          size_hint_y=None, height='24dp', halign='right',
+                          valign='middle')
+        lbl_total.bind(size=lbl_total.setter('text_size'))
+        lista.add_widget(lbl_total)
+
     def _volver_atras(self, *args):
         # El KV del botón "< Volver" llama a este metodo y no existia:
         # el boton estallaba con AttributeError.
@@ -3357,6 +3642,33 @@ class StatsScreen(Screen):
             self.manager.current = 'dashboard'
         except Exception:
             pass
+
+    def exportar_excel(self, *args):
+        """Genera el Excel con todos los gastos y avisa donde quedo guardado."""
+        ruta = exportar_gastos_excel()
+        if ruta:
+            self.ids.lbl_excel_ruta.text = "Guardado: %s" % ruta
+            from kivy.uix.popup import Popup
+            from kivy.uix.label import Label as KivyLabel
+            from kivy.uix.boxlayout import BoxLayout
+            from kivy.uix.button import Button
+            content = BoxLayout(orientation='vertical', spacing=10, padding=15)
+            lbl = KivyLabel(
+                text="Archivo Excel generado:\n%s" % ruta,
+                font_size='13sp', color=[0.08, 0.08, 0.09, 1]
+            )
+            lbl.bind(size=lambda i, v: setattr(i, 'text_size', v))
+            btn_ok = Button(text='Aceptar', size_hint_y=None, height='40dp',
+                            background_color=[0.07, 0.65, 0.60, 1],
+                            color=[1, 1, 1, 1], bold=True)
+            content.add_widget(lbl)
+            content.add_widget(btn_ok)
+            popup = Popup(title='Exportar a Excel', content=content,
+                          size_hint=(0.9, 0.4), auto_dismiss=False)
+            btn_ok.bind(on_press=popup.dismiss)
+            popup.open()
+        else:
+            mostrar_error("No se pudo generar el archivo Excel.")
 
     def _pintar_kpis(self, neto, km, km_c, viajes, neto_kc, km_kc):
         """Tarjetas de metas del conductor con su semáforo.
@@ -3659,6 +3971,7 @@ class StatsScreen(Screen):
         if self._rubro_mes not in meses_visibles:
             self._rubro_mes = meses_visibles[0] if meses_visibles else None
         self._pintar_rubros()
+        self._pintar_retiros()
 
         lista_contable = self.ids.list_accounting
         lista_contable.clear_widgets()
