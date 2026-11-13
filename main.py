@@ -1871,14 +1871,14 @@ ScreenManager:
                 spacing: 8
 
                 Label:
-                    text: "Exportar a Excel"
+                    text: "Gastos en Excel"
                     font_size: '14sp'
                     bold: True
                     color: 0.08, 0.08, 0.09, 1
                     size_hint_y: None
                     height: '24dp'
                 Label:
-                    text: "Todo lo gastado + libro de auditoría para el contable (ingresos, egresos, casa y retiros)"
+                    text: "Un archivo por cada mes, solo lo de InDrive: cada gasto en su propia fila, con el total del mes y el resumen por rubro"
                     font_size: '10sp'
                     color: 0.3, 0.3, 0.35, 1
                     halign: 'left'
@@ -1888,13 +1888,13 @@ ScreenManager:
                     text_size: self.width, None
 
                 AccentButton:
-                    text: "Exportar a Excel"
+                    text: "Excel de gastos (un archivo por mes)"
                     size_hint_y: None
                     height: '40dp'
-                    on_press: root.exportar_excel()
+                    on_press: root.exportar_gastos_mes()
 
                 AccentButton:
-                    text: "Excel del contable (periodo)"
+                    text: "Libro completo del contable (periodo)"
                     size_hint_y: None
                     height: '40dp'
                     on_press: root.exportar_contable()
@@ -3007,6 +3007,10 @@ MESES_NOMBRES = [
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ]
 
+# Para que el Excel de gastos diga el dia de la semana de cada movimiento.
+DIAS_SEMANA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes',
+               'Sábado', 'Domingo']
+
 
 def _mes_menos(clave, meses):
     """'2025-01' menos 1 mes -> '2024-12'. None si la clave no sirve."""
@@ -3567,108 +3571,126 @@ def _guardar_excel(datos, nombre):
         return None
 
 
-def exportar_gastos_excel():
-    """Exporta todos los gastos registrados a un archivo Excel (.xlsx).
+def _fecha_y_dia(texto):
+    """('03/11/2026', 'Lunes') desde la fecha guardada; '-' si no se entiende."""
+    limpio = str(texto or "").strip()[:10]
+    for formato in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            fecha = datetime.strptime(limpio, formato)
+        except ValueError:
+            continue
+        return fecha.strftime("%d/%m/%Y"), DIAS_SEMANA[fecha.weekday()]
+    return (limpio or "-"), "-"
 
-    Incluye:
-      - los Gastos de la cuenta 'Ahorro InDrive' (combustible, aporte,
-        retiros, otros), con sus retiros individuales por mes;
-      - los Gastos sueltos de la casa (casa_gastos);
-      - los gastos declarados dentro de los pagos de alquiler
-        (casa_pagos.gasto_*).
-    Devuelve la ruta del archivo generado o None si falla.
+
+def exportar_gastos_mensual(periodo="todo"):
+    """Un .xlsx por cada mes con los gastos del fondo InDrive, uno por fila.
+
+    La casa no entra: solo la cuenta 'Ahorro InDrive'. Cada gasto va en su
+    propia fila (fecha, dia, rubro, descripcion y monto) y el libro cierra
+    con el total del mes y el resumen por rubro. Los retiros van en su
+    propia hoja para no mezclarlos con el gasto del negocio.
+
+    Respeta el periodo elegido en la pantalla (1M, 3M, 6M, 12M, todo).
+    Devuelve [(mes, ruta), ...] del mes mas nuevo al mas viejo.
     """
-    from datetime import datetime
-
     conn = get_db_connection()
     cur = conn.cursor()
+    desde, hasta = _rango_exportacion(cur, periodo)
 
-    filas = []
+    filtro = "cuenta = 'Ahorro InDrive' AND tipo = 'Gasto'"
+    args = []
+    if desde:
+        filtro += " AND substr(fecha, 1, 7) >= ?"
+        args.append(desde)
+    if hasta:
+        filtro += " AND substr(fecha, 1, 7) <= ?"
+        args.append(hasta)
 
-    # 1) Gastos de la cuenta InDrive (incluye cada Retiro individual)
     cur.execute("""
-        SELECT fecha, categoria, monto, descripcion, cuenta
+        SELECT strftime('%%Y-%%m', fecha) AS mes, fecha, categoria,
+               descripcion, monto
         FROM transacciones
-        WHERE tipo = 'Gasto'
-        ORDER BY fecha DESC
-    """)
-    for fecha, categoria, monto, descripcion, cuenta in cur.fetchall():
-        filas.append([
-            str(fecha)[:10] if fecha else '-',
-            'InDrive',
-            str(categoria) if categoria else '-',
-            float(monto or 0),
-            str(descripcion) if descripcion else '-',
-            str(cuenta) if cuenta else '-',
-        ])
+        WHERE %s
+        ORDER BY fecha ASC, id ASC
+    """ % filtro, args)
 
-    # 2) Gastos sueltos de la casa
-    cur.execute("SELECT fecha, concepto, monto, tipo FROM casa_gastos ORDER BY fecha DESC")
-    for fecha, concepto, monto, tipo in cur.fetchall():
-        filas.append([
-            str(fecha)[:10] if fecha else '-',
-            'Casa',
-            str(concepto) if concepto else '-',
-            float(monto or 0),
-            str(tipo) if tipo else 'casa',
-            'Gasto de casa',
-        ])
-
-    # 3) Gastos declarados dentro de los pagos de alquiler
-    cur.execute("""
-        SELECT gasto_fecha, gasto_concepto, gasto_monto
-        FROM casa_pagos
-        WHERE (gasto_monto > 0 OR gasto_concepto IS NOT NULL)
-        ORDER BY gasto_fecha DESC
-    """)
-    for gasto_fecha, gasto_concepto, gasto_monto in cur.fetchall():
-        filas.append([
-            str(gasto_fecha)[:10] if gasto_fecha else '-',
-            'Casa (pago)',
-            str(gasto_concepto) if gasto_concepto else '-',
-            float(gasto_monto or 0),
-            '-',
-            'Gasto declarado en pago de alquiler',
-        ])
-
-    conn.close()
-
-    # Armamos el libro: detalle completo + resumen por origen y por mes
-    encabezados = ["Fecha", "Origen", "Concepto / Categoría", "Monto",
-                   "Tipo", "Detalle / Descripción"]
-    detalle = [encabezados] + list(filas)
-    total = sum(f[3] for f in filas)
-    detalle.append([])
-    detalle.append(["TOTAL", "", "", total, "", ""])
-
-    por_origen = {}
     por_mes = {}
-    for fecha, origen, _concepto, monto, _tipo, _detalle in filas:
-        por_origen[origen] = por_origen.get(origen, 0.0) + monto
-        mes = (fecha or "")[:7] or "-"
-        por_mes[mes] = por_mes.get(mes, 0.0) + monto
+    for mes, fecha, categoria, descripcion, monto in cur.fetchall():
+        mes = str(mes or "")[:7]
+        if not mes:
+            continue
+        por_mes.setdefault(mes, []).append(
+            (str(fecha or ""), str(categoria or ""),
+             str(descripcion or ""), float(monto or 0)))
 
-    resumen = [["Origen", "Monto"]]
-    for origen, monto in sorted(por_origen.items(), key=lambda par: -par[1]):
-        resumen.append([origen, monto])
-    resumen.append([])
-    resumen.append(["TOTAL", total])
-
-    mensual = [["Mes", "Monto"]]
+    generados = []
     for mes in sorted(por_mes, reverse=True):
-        mensual.append([mes, por_mes[mes]])
-    mensual.append([])
-    mensual.append(["TOTAL", total])
+        gastos = []
+        retiros = []
+        for fecha, categoria, descripcion, monto in por_mes[mes]:
+            if categoria == "Retiro":
+                retiros.append((fecha, descripcion, monto))
+            else:
+                gastos.append((fecha, categoria, descripcion, monto))
 
-    datos = _construir_xlsx([
-        ("Gastos", detalle, (4,), (12, 13, 28, 12, 16, 42)),
-        ("Resumen por origen", resumen, (2,), (26, 14)),
-        ("Por mes", mensual, (2,), (12, 14)),
-    ])
+        # --- hoja 1: cada gasto en su propia fila ---
+        detalle = [["N°", "Fecha", "Día", "Rubro", "Descripción", "Monto"]]
+        por_rubro = {}
+        cantidad = {}
+        for numero, (fecha, categoria, descripcion, monto) in enumerate(
+                gastos, start=1):
+            corta, dia = _fecha_y_dia(fecha)
+            rubro = RUBROS_EGRESO.get(categoria, categoria or "Otros")
+            detalle.append([numero, corta, dia, rubro,
+                            descripcion or "-", monto])
+            por_rubro[rubro] = por_rubro.get(rubro, 0.0) + monto
+            cantidad[rubro] = cantidad.get(rubro, 0) + 1
+        total_gastos = sum(f[5] for f in detalle[1:])
+        detalle.append([])
+        detalle.append(["", "", "", "", "TOTAL GASTOS DEL MES", total_gastos])
 
-    # Nombre del archivo con fecha y hora para no sobrescribir
-    nombre = "Gastos_InDrive_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
-    return _guardar_excel(datos, nombre)
+        hojas = [("Gastos", detalle, (6,), (6, 12, 12, 22, 44, 13))]
+
+        # --- hoja 2 (si hay): cada retiro por separado ---
+        total_retiros = 0.0
+        if retiros:
+            filas_ret = [["N°", "Fecha", "Día", "Descripción", "Monto"]]
+            for numero, (fecha, descripcion, monto) in enumerate(
+                    retiros, start=1):
+                corta, dia = _fecha_y_dia(fecha)
+                filas_ret.append([numero, corta, dia,
+                                  descripcion or "-", monto])
+                total_retiros += monto
+            filas_ret.append([])
+            filas_ret.append(["", "", "", "TOTAL RETIROS", total_retiros])
+            hojas.append(("Retiros", filas_ret, (5,), (6, 12, 12, 44, 13)))
+
+        # --- hoja 3: resumen del mes por rubro ---
+        filas_res = [["Rubro", "Cantidad", "Total", "% de los gastos"]]
+        for rubro, monto in sorted(por_rubro.items(), key=lambda par: -par[1]):
+            porcentaje = (monto / total_gastos * 100.0) if total_gastos else 0.0
+            filas_res.append([rubro, cantidad.get(rubro, 0), monto,
+                              round(porcentaje, 2)])
+        filas_res.append([])
+        filas_res.append(["TOTAL GASTOS", len(gastos), total_gastos,
+                          100.0 if total_gastos else 0.0])
+        filas_res.append([])
+        filas_res.append(["Retiros al dueño", len(retiros), total_retiros])
+        filas_res.append(["TOTAL QUE SALIÓ DEL FONDO", "",
+                          total_gastos + total_retiros])
+        filas_res.append([])
+        filas_res.append(["Mes del informe", _etiqueta_mes_largo(mes)])
+        filas_res.append(["Generado",
+                          datetime.now().strftime("%d/%m/%Y %H:%M")])
+        hojas.append(("Resumen", filas_res, (3,), (26, 10, 14, 16)))
+
+        nombre = "Gastos_InDrive_%s.xlsx" % mes
+        ruta = _guardar_excel(_construir_xlsx(hojas), nombre)
+        if ruta:
+            generados.append((mes, ruta))
+    conn.close()
+    return generados
 
 
 def _rango_exportacion(cur, periodo):
@@ -4261,16 +4283,16 @@ class StatsScreen(Screen):
         except Exception:
             pass
 
-    def _avisar_excel(self, ruta, titulo):
-        """Popup con la ruta donde quedo el archivo generado."""
-        self.ids.lbl_excel_ruta.text = "Guardado: %s" % ruta
+    def _avisar_excel(self, texto, titulo, pie=""):
+        """Popup con lo que se genero (texto ya armado por quien llama)."""
+        self.ids.lbl_excel_ruta.text = pie or "Listo"
         from kivy.uix.popup import Popup
         from kivy.uix.label import Label as KivyLabel
         from kivy.uix.boxlayout import BoxLayout
         from kivy.uix.button import Button
         content = BoxLayout(orientation='vertical', spacing=10, padding=15)
         lbl = KivyLabel(
-            text="Archivo Excel generado:\n%s" % ruta,
+            text=texto,
             font_size='13sp', color=[0.08, 0.08, 0.09, 1]
         )
         lbl.bind(size=lambda i, v: setattr(i, 'text_size', v))
@@ -4284,19 +4306,33 @@ class StatsScreen(Screen):
         btn_ok.bind(on_press=popup.dismiss)
         popup.open()
 
-    def exportar_excel(self, *args):
-        """Excel con todo lo gastado (historico) y avisa donde quedo."""
-        ruta = exportar_gastos_excel()
-        if ruta:
-            self._avisar_excel(ruta, "Exportar a Excel")
-        else:
-            mostrar_error("No se pudo generar el archivo Excel.")
+    def exportar_gastos_mes(self, *args):
+        """Un Excel por cada mes, solo con los gastos de InDrive."""
+        archivos = exportar_gastos_mensual(self.periodo)
+        if not archivos:
+            mostrar_error("No hay gastos de InDrive en ese periodo.")
+            return
+        if len(archivos) == 1:
+            mes, ruta = archivos[0]
+            self._avisar_excel(
+                "Gastos de %s guardados en:\n%s"
+                % (_etiqueta_mes_largo(mes), ruta),
+                "Gastos del mes", "Guardado: %s" % ruta)
+            return
+        lineas = ["Se generaron %d archivos, uno por mes:" % len(archivos)]
+        for mes, ruta in archivos:
+            lineas.append("%s  →  %s"
+                          % (_etiqueta_mes_largo(mes),
+                             os.path.basename(str(ruta))))
+        self._avisar_excel("\n".join(lineas), "Gastos por mes",
+                           "%d archivos en Descargas" % len(archivos))
 
     def exportar_contable(self, *args):
         """Libro de auditoria del periodo elegido (ingresos y egresos)."""
         ruta = exportar_contable_excel(self.periodo)
         if ruta:
-            self._avisar_excel(ruta, "Excel del contable")
+            self._avisar_excel("Archivo Excel generado:\n%s" % ruta,
+                               "Libro del contable", "Guardado: %s" % ruta)
         else:
             mostrar_error("No se pudo generar el libro de auditoría.")
 
