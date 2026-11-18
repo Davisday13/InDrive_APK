@@ -2997,9 +2997,10 @@ class CarroScreen(Screen):
         self.gastado_carro = f"${tot_eg:,.2f}"
         if saldo < 0:
             self.aviso_carro = (
-                "Se prestó del Ahorro InDrive: $%s\n"
-                "De eso ya pagaste: $%s"
-                % (format(-saldo, ",.2f"), format(tot_ing, ",.2f")))
+                "Deuda con el Ahorro InDrive: $%s\n"
+                "Gastaste $%s y has aportado $%s"
+                % (format(-saldo, ",.2f"), format(tot_eg, ",.2f"),
+                   format(tot_ing, ",.2f")))
             self.color_aviso_carro = [0.90, 0.30, 0.35, 1]
         elif tot_ing or tot_eg:
             self.aviso_carro = ("A favor del carro: $%s"

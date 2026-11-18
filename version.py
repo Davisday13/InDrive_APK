@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.23"
-VERSION_CODE = 133
-NOTA = "Comparativa mensual arreglada: la gráfica de barras (Ahorro vs Carro) ya se dibuja dentro de la tarjeta y muestra el total del periodo. En Fondo del Carro ahora ves cuánto has pagado y cuánto se gastó; si el saldo queda negativo te dice cuánto se prestó del Ahorro InDrive y cuánto ya pagaste."
+VERSION = "1.1.24"
+VERSION_CODE = 134
+NOTA = "Fondo del Carro: el aviso ahora dice claro 'Deuda con el Ahorro InDrive' con el detalle de lo que gastaste y lo que has aportado, para que no se confunda la deuda con el saldo. La comparativa mensual sigue con su gráfica de barras y el total del periodo."
