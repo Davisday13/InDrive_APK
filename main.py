@@ -749,7 +749,7 @@ ScreenManager:
 
                 RoundedCard:
                     size_hint_y: None
-                    height: '90dp'
+                    height: '112dp'
                     bg_color: [1, 1, 1, 1]
                     Label:
                         text: "FONDO DEL CARRO"
@@ -763,6 +763,12 @@ ScreenManager:
                         font_size: '28sp'
                         bold: True
                         color: root.color_carro
+                    Label:
+                        text: root.detalle_carro
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        size_hint_y: None
+                        height: '16dp'
 
         GridLayout:
             cols: 2
@@ -971,6 +977,52 @@ ScreenManager:
                 font_size: '18sp'
                 bold: True
                 color: root.color_carro
+
+        GridLayout:
+            cols: 2
+            size_hint_y: None
+            height: '76dp'
+            spacing: 8
+            RoundedCard:
+                bg_color: [1, 1, 1, 1]
+                Label:
+                    text: "Pagado al carro"
+                    font_size: '10sp'
+                    bold: True
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '16dp'
+                Label:
+                    text: root.pagado_carro
+                    font_size: '17sp'
+                    bold: True
+                    color: 0.07, 0.65, 0.60, 1
+            RoundedCard:
+                bg_color: [1, 1, 1, 1]
+                Label:
+                    text: "Gastado en el carro"
+                    font_size: '10sp'
+                    bold: True
+                    color: 0.3, 0.3, 0.35, 1
+                    size_hint_y: None
+                    height: '16dp'
+                Label:
+                    text: root.gastado_carro
+                    font_size: '17sp'
+                    bold: True
+                    color: 0.90, 0.30, 0.35, 1
+
+        Label:
+            id: lbl_aviso_carro
+            text: root.aviso_carro
+            font_size: '11sp'
+            bold: True
+            color: root.color_aviso_carro
+            size_hint_y: None
+            height: '32dp'
+            text_size: self.width, None
+            halign: 'center'
+            valign: 'middle'
 
         BoxLayout:
             orientation: 'vertical'
@@ -1784,7 +1836,7 @@ ScreenManager:
 
             RoundedCard:
                 size_hint_y: None
-                height: '240dp'
+                height: '268dp'
                 bg_color: [1, 1, 1, 1]
                 padding: [10, 15, 10, 10]
                 BoxLayout:
@@ -1838,6 +1890,16 @@ ScreenManager:
                                 text: "Carro"
                                 font_size: '10sp'
                                 color: 0.08, 0.08, 0.09, 1
+
+                    Label:
+                        id: lbl_comparativa_total
+                        text: ""
+                        font_size: '10sp'
+                        bold: True
+                        color: 0.3, 0.3, 0.35, 1
+                        size_hint_y: None
+                        height: '18dp'
+                        text_size: self.width, None
 
             RoundedCard:
                 id: daily_profits_card
@@ -2118,6 +2180,7 @@ ScreenManager:
 class DashboardScreen(Screen):
     balance_ahorro = StringProperty("$0.00")
     balance_carro = StringProperty("$0.00")
+    detalle_carro = StringProperty("")
     color_carro = ObjectProperty([0.07, 0.65, 0.60, 1])
     sync_estado = StringProperty("")
 
@@ -2451,6 +2514,9 @@ class DashboardScreen(Screen):
         saldo_carro = tot_carro_ing - tot_carro_eg
         self.balance_carro = f"${saldo_carro:,.2f}"
         self.color_carro = [0.07, 0.65, 0.60, 1] if saldo_carro >= 0 else [0.90, 0.30, 0.35, 1]
+        self.detalle_carro = ("Pagado $%s  ·  Gastado $%s"
+                              % (format(tot_carro_ing, ",.2f"),
+                                 format(tot_carro_eg, ",.2f")))
 
         conn.close()
 
@@ -2871,6 +2937,10 @@ class AhorroScreen(Screen):
 class CarroScreen(Screen):
     balance_carro = StringProperty("$0.00")
     color_carro = ObjectProperty([0.07, 0.65, 0.60, 1])
+    pagado_carro = StringProperty("$0.00")
+    gastado_carro = StringProperty("$0.00")
+    aviso_carro = StringProperty("")
+    color_aviso_carro = ObjectProperty([0.3, 0.3, 0.35, 1])
     var_c_tipo = StringProperty("Gasto")
     var_c_cat = StringProperty("Combustible")
 
@@ -2923,6 +2993,21 @@ class CarroScreen(Screen):
         saldo = tot_ing - tot_eg
         self.balance_carro = f"${saldo:,.2f}"
         self.color_carro = [0.07, 0.65, 0.60, 1] if saldo >= 0 else [0.90, 0.30, 0.35, 1]
+        self.pagado_carro = f"${tot_ing:,.2f}"
+        self.gastado_carro = f"${tot_eg:,.2f}"
+        if saldo < 0:
+            self.aviso_carro = (
+                "Se prestó del Ahorro InDrive: $%s\n"
+                "De eso ya pagaste: $%s"
+                % (format(-saldo, ",.2f"), format(tot_ing, ",.2f")))
+            self.color_aviso_carro = [0.90, 0.30, 0.35, 1]
+        elif tot_ing or tot_eg:
+            self.aviso_carro = ("A favor del carro: $%s"
+                                % format(saldo, ",.2f"))
+            self.color_aviso_carro = [0.07, 0.65, 0.60, 1]
+        else:
+            self.aviso_carro = "Todavía no hay aportes ni gastos del carro."
+            self.color_aviso_carro = [0.3, 0.3, 0.35, 1]
 
         self.ids.list_carro.clear_widgets()
         cur.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM transacciones WHERE cuenta = 'Uso del Carro' ORDER BY fecha DESC LIMIT 50")
@@ -4498,6 +4583,12 @@ class StatsScreen(Screen):
 
     def draw_chart(self, *args):
         holder = self.ids.chart_canvas
+        if not getattr(self, "_chart_sigue_al_scroll", False):
+            # El lienzo de un Widget se pinta en coordenadas de la ventana,
+            # no en las de la tarjeta. Si la pantalla se desplaza hay que
+            # volver a pintar las barras donde quedo el hueco del grafico.
+            holder.bind(pos=self.trigger_draw)
+            self._chart_sigue_al_scroll = True
         holder.canvas.clear()
         
         w, h = holder.width, holder.height
@@ -4650,6 +4741,7 @@ class StatsScreen(Screen):
             # Sin movimientos no se puede dejar a la vista el mejor mes ni
             # los meses del dibujado anterior.
             self.ids.lbl_best_month.text = "-"
+            self.ids.lbl_comparativa_total.text = ""
             self.ids.chart_months.clear_widgets()
             return
 
@@ -4668,6 +4760,12 @@ class StatsScreen(Screen):
         mejor = max(claves, key=lambda c: stats[c]["Ahorro"])
         self.ids.lbl_best_month.text = _etiqueta_mes(mejor)
 
+        total_ahorro = sum(stats[c]["Ahorro"] for c in claves)
+        total_carro = sum(stats[c]["Carro"] for c in claves)
+        self.ids.lbl_comparativa_total.text = (
+            "Total del periodo:  Ahorro $%s  ·  Carro $%s"
+            % (format(total_ahorro, ",.2f"), format(total_carro, ",.2f")))
+
         months_container = self.ids.chart_months
         months_container.clear_widgets()
         for idx, etiqueta in enumerate(etiquetas):
@@ -4681,7 +4779,9 @@ class StatsScreen(Screen):
 
         px, py = 40, 30
         cw, ch = w - 80, h - 60
-        ox = px
+        holder = self.ids.chart_canvas
+        ox = holder.x + px
+        oy = holder.y + py
 
         valores = [stats[c]["Ahorro"] for c in claves]
         valores.extend(stats[c]["Carro"] for c in claves)
@@ -4692,7 +4792,7 @@ class StatsScreen(Screen):
         rango = max_val - min_val
 
         def _y(valor):
-            return py + (valor - min_val) / rango * ch
+            return oy + (valor - min_val) / rango * ch
 
         cero_y = _y(0.0)
         group_w = cw / n

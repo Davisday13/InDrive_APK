@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.22"
-VERSION_CODE = 132
-NOTA = "Gastos en Excel, un archivo por cada mes y solo lo de InDrive: cada gasto va en su propia fila (fecha, día, rubro, descripción y monto), con el total del mes y el resumen por rubro. Los retiros salen en su hoja aparte. Respeta el periodo elegido (1M/3M/6M/12M/Todo) y se guarda en Descargas."
+VERSION = "1.1.23"
+VERSION_CODE = 133
+NOTA = "Comparativa mensual arreglada: la gráfica de barras (Ahorro vs Carro) ya se dibuja dentro de la tarjeta y muestra el total del periodo. En Fondo del Carro ahora ves cuánto has pagado y cuánto se gastó; si el saldo queda negativo te dice cuánto se prestó del Ahorro InDrive y cuánto ya pagaste."
