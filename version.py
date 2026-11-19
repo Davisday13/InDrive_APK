@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.24"
-VERSION_CODE = 134
-NOTA = "Fondo del Carro: el aviso ahora dice claro 'Deuda con el Ahorro InDrive' con el detalle de lo que gastaste y lo que has aportado, para que no se confunda la deuda con el saldo. La comparativa mensual sigue con su gráfica de barras y el total del periodo."
+VERSION = "1.1.25"
+VERSION_CODE = 135
+NOTA = "Fondo del Carro con la deuda clara: ves la deuda pendiente, el total pagado y gastado, y una tarjeta con los pagos desde el último gasto del carro (con las fechas y cuántos aportes). En la lista cada movimiento muestra la deuda que queda después de ese aporte o gasto. El formulario queda plegado tras el botón Registrar movimiento."

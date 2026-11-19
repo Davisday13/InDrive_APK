@@ -13,7 +13,8 @@ from version import VERSION as VERSION_APP, NOTA as NOTA_APP
 from kivy.app import App
 from kivy.lang import Builder
 from kivy.uix.screenmanager import ScreenManager, Screen
-from kivy.properties import StringProperty, NumericProperty, ObjectProperty, ListProperty
+from kivy.properties import (StringProperty, NumericProperty, ObjectProperty,
+                             ListProperty, BooleanProperty)
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
@@ -765,10 +766,12 @@ ScreenManager:
                         color: root.color_carro
                     Label:
                         text: root.detalle_carro
-                        font_size: '10sp'
+                        font_size: '9sp'
                         color: 0.3, 0.3, 0.35, 1
                         size_hint_y: None
                         height: '16dp'
+                        text_size: self.width, None
+                        halign: 'center'
 
         GridLayout:
             cols: 2
@@ -970,31 +973,48 @@ ScreenManager:
 
         RoundedCard:
             size_hint_y: None
-            height: '65dp'
+            height: '106dp'
             bg_color: [1, 1, 1, 1]
             Label:
-                text: "Saldo: " + root.balance_carro
-                font_size: '18sp'
+                text: root.etiqueta_saldo
+                font_size: '10sp'
+                bold: True
+                color: 0.3, 0.3, 0.35, 1
+                size_hint_y: None
+                height: '14dp'
+            Label:
+                text: root.balance_carro
+                font_size: '30sp'
                 bold: True
                 color: root.color_carro
+                size_hint_y: None
+                height: '40dp'
+            Label:
+                text: root.detalle_carro
+                font_size: '10sp'
+                color: 0.3, 0.3, 0.35, 1
+                size_hint_y: None
+                height: '14dp'
+                text_size: self.width, None
+                halign: 'center'
 
         GridLayout:
             cols: 2
             size_hint_y: None
-            height: '76dp'
+            height: '64dp'
             spacing: 8
             RoundedCard:
                 bg_color: [1, 1, 1, 1]
                 Label:
-                    text: "Pagado al carro"
+                    text: "Pagado (aportes)"
                     font_size: '10sp'
                     bold: True
                     color: 0.3, 0.3, 0.35, 1
                     size_hint_y: None
-                    height: '16dp'
+                    height: '14dp'
                 Label:
                     text: root.pagado_carro
-                    font_size: '17sp'
+                    font_size: '16sp'
                     bold: True
                     color: 0.07, 0.65, 0.60, 1
             RoundedCard:
@@ -1005,29 +1025,69 @@ ScreenManager:
                     bold: True
                     color: 0.3, 0.3, 0.35, 1
                     size_hint_y: None
-                    height: '16dp'
+                    height: '14dp'
                 Label:
                     text: root.gastado_carro
-                    font_size: '17sp'
+                    font_size: '16sp'
                     bold: True
                     color: 0.90, 0.30, 0.35, 1
 
-        Label:
-            id: lbl_aviso_carro
-            text: root.aviso_carro
-            font_size: '11sp'
-            bold: True
-            color: root.color_aviso_carro
+        RoundedCard:
             size_hint_y: None
-            height: '32dp'
-            text_size: self.width, None
-            halign: 'center'
-            valign: 'middle'
+            height: '112dp'
+            bg_color: [1, 1, 1, 1]
+            Label:
+                text: "PAGOS DESDE EL ÚLTIMO GASTO DEL CARRO"
+                font_size: '9sp'
+                bold: True
+                color: 0.3, 0.3, 0.35, 1
+                size_hint_y: None
+                height: '14dp'
+            Label:
+                text: root.periodo_titulo
+                font_size: '10sp'
+                color: 0.3, 0.3, 0.35, 1
+                size_hint_y: None
+                height: '14dp'
+            Label:
+                text: root.periodo_pagado
+                font_size: '16sp'
+                bold: True
+                color: 0.07, 0.65, 0.60, 1
+                size_hint_y: None
+                height: '22dp'
+            Label:
+                text: root.periodo_nota
+                font_size: '10sp'
+                bold: True
+                color: root.color_periodo
+                size_hint_y: None
+                height: '16dp'
+                text_size: self.width, None
+                halign: 'center'
+
+        Button:
+            text: "+ Registrar movimiento" if not root.forma_abierta else "Cerrar formulario"
+            font_size: '12sp'
+            bold: True
+            size_hint_y: None
+            height: '34dp'
+            background_color: 0, 0, 0, 0
+            color: 0.08, 0.08, 0.09, 1
+            canvas.before:
+                Color:
+                    rgba: [1, 1, 1, 0.75]
+                RoundedRectangle:
+                    size: self.size
+                    pos: self.pos
+                    radius: [8]
+            on_press: root.forma_abierta = not root.forma_abierta
 
         BoxLayout:
             orientation: 'vertical'
             size_hint_y: None
-            height: '260dp'
+            height: '260dp' if root.forma_abierta else 0
+            opacity: 1 if root.forma_abierta else 0
             padding: [10, 10]
             spacing: 8
             canvas.before:
@@ -2512,10 +2572,13 @@ class DashboardScreen(Screen):
         tot_carro_ing = sum(m for t, m in carro_rows if t == "Ingreso")
         tot_carro_eg = sum(m for t, m in carro_rows if t == "Gasto")
         saldo_carro = tot_carro_ing - tot_carro_eg
-        self.balance_carro = f"${saldo_carro:,.2f}"
+        # Igual que en la pantalla del carro: el saldo negativo se muestra
+        # como deuda en positivo para que no parezca plata disponible.
+        self.balance_carro = f"${abs(saldo_carro):,.2f}"
         self.color_carro = [0.07, 0.65, 0.60, 1] if saldo_carro >= 0 else [0.90, 0.30, 0.35, 1]
-        self.detalle_carro = ("Pagado $%s  ·  Gastado $%s"
-                              % (format(tot_carro_ing, ",.2f"),
+        self.detalle_carro = ("%sPagado $%s  -  Gastado $%s"
+                              % ("Deuda  -  " if saldo_carro < 0 else "",
+                                 format(tot_carro_ing, ",.2f"),
                                  format(tot_carro_eg, ",.2f")))
 
         conn.close()
@@ -2937,8 +3000,15 @@ class AhorroScreen(Screen):
 class CarroScreen(Screen):
     balance_carro = StringProperty("$0.00")
     color_carro = ObjectProperty([0.07, 0.65, 0.60, 1])
+    etiqueta_saldo = StringProperty("DEUDA CON EL AHORRO INDRIVE")
+    detalle_carro = StringProperty("")
     pagado_carro = StringProperty("$0.00")
     gastado_carro = StringProperty("$0.00")
+    periodo_titulo = StringProperty("")
+    periodo_pagado = StringProperty("")
+    periodo_nota = StringProperty("")
+    color_periodo = ObjectProperty([0.3, 0.3, 0.35, 1])
+    forma_abierta = BooleanProperty(False)
     aviso_carro = StringProperty("")
     color_aviso_carro = ObjectProperty([0.3, 0.3, 0.35, 1])
     var_c_tipo = StringProperty("Gasto")
@@ -2986,43 +3056,91 @@ class CarroScreen(Screen):
     def refresh_all(self):
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT tipo, monto FROM transacciones WHERE cuenta = 'Uso del Carro'")
+        cur.execute("SELECT id, fecha, tipo, monto, categoria, descripcion "
+                    "FROM transacciones WHERE cuenta = 'Uso del Carro' "
+                    "ORDER BY fecha ASC, id ASC")
         rows = cur.fetchall()
-        tot_ing = sum(m for t, m in rows if t == "Ingreso")
-        tot_eg = sum(m for t, m in rows if t == "Gasto")
+        conn.close()
+
+        tot_ing = sum(float(r[3]) for r in rows if r[2] == "Ingreso")
+        tot_eg = sum(float(r[3]) for r in rows if r[2] == "Gasto")
         saldo = tot_ing - tot_eg
-        self.balance_carro = f"${saldo:,.2f}"
-        self.color_carro = [0.07, 0.65, 0.60, 1] if saldo >= 0 else [0.90, 0.30, 0.35, 1]
+        # El saldo negativo es deuda: se muestra en positivo y con su nombre,
+        # para que no se lea como plata disponible.
+        self.balance_carro = f"${abs(saldo):,.2f}"
+        self.color_carro = ([0.07, 0.65, 0.60, 1] if saldo >= 0
+                            else [0.90, 0.30, 0.35, 1])
+        self.etiqueta_saldo = ("SALDO A FAVOR" if saldo >= 0
+                               else "DEUDA CON EL AHORRO INDRIVE")
+        self.detalle_carro = ("Gastado $%s  -  Aportado $%s"
+                              % (format(tot_eg, ",.2f"),
+                                 format(tot_ing, ",.2f")))
         self.pagado_carro = f"${tot_ing:,.2f}"
         self.gastado_carro = f"${tot_eg:,.2f}"
-        if saldo < 0:
-            self.aviso_carro = (
-                "Deuda con el Ahorro InDrive: $%s\n"
-                "Gastaste $%s y has aportado $%s"
-                % (format(-saldo, ",.2f"), format(tot_eg, ",.2f"),
-                   format(tot_ing, ",.2f")))
-            self.color_aviso_carro = [0.90, 0.30, 0.35, 1]
-        elif tot_ing or tot_eg:
-            self.aviso_carro = ("A favor del carro: $%s"
-                                % format(saldo, ",.2f"))
-            self.color_aviso_carro = [0.07, 0.65, 0.60, 1]
+
+        # Pagos de la ultima temporada: desde el ultimo gasto del carro
+        # (el que mueve la deuda) hasta hoy. Asi se ve cuanto se abono
+        # despues de ese gasto y cuanto queda pendiente.
+        hoy = datetime.now().strftime("%Y-%m-%d")
+        gastos = [r for r in rows if r[2] == "Gasto" and r[1]]
+        if gastos:
+            inicio = max(r[1] for r in gastos)
+        elif rows:
+            inicio = rows[0][1] or hoy
         else:
-            self.aviso_carro = "Todavía no hay aportes ni gastos del carro."
-            self.color_aviso_carro = [0.3, 0.3, 0.35, 1]
+            inicio = hoy
+        hasta = max([hoy] + [r[1] for r in rows if r[1]])
+        ventana = [r for r in rows if r[1] and inicio <= r[1] <= hasta]
+        pag_ventana = sum(float(r[3]) for r in ventana if r[2] == "Ingreso")
+        n_aportes = sum(1 for r in ventana if r[2] == "Ingreso")
+        gas_ventana = sum(float(r[3]) for r in ventana if r[2] == "Gasto")
+        neto = pag_ventana - gas_ventana
+
+        self.periodo_titulo = ("Del %s al %s" % (_fecha_ddmmaaaa(inicio),
+                                                 _fecha_ddmmaaaa(hasta)))
+        self.periodo_pagado = ("Pagado: $%s en %d aporte%s"
+                               % (format(pag_ventana, ",.2f"), n_aportes,
+                                  "" if n_aportes == 1 else "s"))
+        if not rows:
+            self.periodo_titulo = ""
+            self.periodo_pagado = "Sin movimientos del carro"
+            self.periodo_nota = "Registra un aporte o un gasto"
+            self.color_periodo = [0.3, 0.3, 0.35, 1]
+        elif neto < 0:
+            self.periodo_nota = ("Gastos $%s - la deuda subió $%s"
+                                 % (format(gas_ventana, ",.2f"),
+                                    format(-neto, ",.2f")))
+            self.color_periodo = [0.90, 0.30, 0.35, 1]
+        elif neto > 0:
+            self.periodo_nota = ("Gastos $%s - la deuda bajó $%s"
+                                 % (format(gas_ventana, ",.2f"),
+                                    format(neto, ",.2f")))
+            self.color_periodo = [0.07, 0.65, 0.60, 1]
+        else:
+            self.periodo_nota = ("Gastos $%s - la deuda quedó igual"
+                                 % format(gas_ventana, ",.2f"))
+            self.color_periodo = [0.3, 0.3, 0.35, 1]
+
+        # Saldo acumulado despues de cada movimiento, para poder auditar
+        # la deuda linea por linea.
+        acumulado = 0.0
+        saldos = {}
+        for r in rows:
+            acumulado += float(r[3]) if r[2] == "Ingreso" else -float(r[3])
+            saldos[r[0]] = acumulado
 
         self.ids.list_carro.clear_widgets()
-        cur.execute("SELECT id, fecha, tipo, categoria, monto, descripcion FROM transacciones WHERE cuenta = 'Uso del Carro' ORDER BY fecha DESC LIMIT 50")
-        rows = cur.fetchall()
-        for r in rows:
-            tid, fd, tp, cat, monto, desc = r
+        for r in reversed(rows[-50:]):
+            tid, fd, tp, monto, cat, desc = r
             try:
                 fecha_v = datetime.strptime(fd, "%Y-%m-%d").strftime("%d/%m")
             except:
                 fecha_v = fd
-            item = TransactionItem(tid, fecha_v, tp, cat, monto, desc, self.delete_item,
-                                   edit_callback=self.edit_item)
+            item = TransactionItem(tid, fecha_v, tp, cat, float(monto), desc,
+                                   self.delete_item,
+                                   edit_callback=self.edit_item,
+                                   saldo=saldos.get(tid))
             self.ids.list_carro.add_widget(item)
-        conn.close()
 
     def save_carro(self):
         monto_s = self.ids.c_monto.text.strip()
@@ -3087,6 +3205,14 @@ class CarroScreen(Screen):
 
 MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
                 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+
+def _fecha_ddmmaaaa(texto):
+    """Pasa '2026-10-22' a '22/10/2026'. Si no se puede, deja el texto."""
+    try:
+        return datetime.strptime(str(texto)[:10], "%Y-%m-%d").strftime("%d/%m/%Y")
+    except Exception:
+        return str(texto)
 
 MESES_NOMBRES = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -4962,11 +5088,11 @@ class CalendarScreen(Screen):
 
 class TransactionItem(BoxLayout):
     def __init__(self, tid, fecha, tipo, cat, monto, desc, delete_callback,
-                 edit_callback=None, **kwargs):
+                 edit_callback=None, saldo=None, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'horizontal'
         self.size_hint_y = None
-        self.height = '48dp'
+        self.height = '52dp' if saldo is not None else '48dp'
         self.padding = [10, 6]
         self.spacing = 8
         
@@ -4993,7 +5119,28 @@ class TransactionItem(BoxLayout):
         btn_del.bind(on_press=lambda btn: delete_callback(tid))
 
         self.add_widget(info_layout)
-        self.add_widget(lbl_monto)
+        if saldo is None:
+            self.add_widget(lbl_monto)
+        else:
+            # Saldo acumulado despues del movimiento: deja ver cuanto se debe
+            # en cada punto, no solo el total del final.
+            col_saldo = BoxLayout(orientation='vertical', size_hint_x=0.28,
+                                  spacing=0)
+            lbl_monto.size_hint_x = 1
+            if saldo < 0:
+                texto_saldo = "Debe $%s" % format(-saldo, ",.2f")
+                color_saldo = [0.90, 0.30, 0.35, 1]
+            else:
+                texto_saldo = "Saldo $%s" % format(saldo, ",.2f")
+                color_saldo = [0.07, 0.65, 0.60, 1]
+            lbl_saldo = Label(text=texto_saldo, font_size='9sp',
+                              color=color_saldo, halign='right',
+                              valign='middle', size_hint_y=None,
+                              height='14dp')
+            lbl_saldo.bind(size=lbl_saldo.setter('text_size'))
+            col_saldo.add_widget(lbl_monto)
+            col_saldo.add_widget(lbl_saldo)
+            self.add_widget(col_saldo)
         if edit_callback is not None:
             btn_edit = Button(text="Editar", size_hint_x=None, width='48dp',
                               background_color=[0, 0, 0, 0], color=[0.07, 0.65, 0.60, 1],
