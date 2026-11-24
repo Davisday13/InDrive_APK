@@ -985,7 +985,7 @@ ScreenManager:
 
                 RoundedCard:
                     size_hint_y: None
-                    height: '106dp'
+                    height: '120dp'
                     bg_color: [1, 1, 1, 1]
                     Label:
                         text: root.etiqueta_saldo
@@ -1007,6 +1007,14 @@ ScreenManager:
                         color: 0.3, 0.3, 0.35, 1
                         size_hint_y: None
                         height: '14dp'
+                        text_size: self.width, None
+                        halign: 'center'
+                    Label:
+                        text: root.deudas_pagadas
+                        font_size: '9sp'
+                        color: 0.07, 0.65, 0.60, 1
+                        size_hint_y: None
+                        height: '12dp'
                         text_size: self.width, None
                         halign: 'center'
 
@@ -3010,6 +3018,7 @@ class CarroScreen(Screen):
     periodo_pagado = StringProperty("")
     periodo_nota = StringProperty("")
     color_periodo = ObjectProperty([0.3, 0.3, 0.35, 1])
+    deudas_pagadas = StringProperty("")
     var_c_tipo = StringProperty("Gasto")
     var_c_cat = StringProperty("Mantenimiento")
 
@@ -3127,9 +3136,22 @@ class CarroScreen(Screen):
         # la deuda linea por linea.
         acumulado = 0.0
         saldos = {}
+        max_deuda = 0.0
         for r in rows:
             acumulado += float(r[3]) if r[2] == "Ingreso" else -float(r[3])
             saldos[r[0]] = acumulado
+            if acumulado < 0:
+                max_deuda = max(max_deuda, -acumulado)
+
+        # Cuando la deuda se paga (saldo >= 0) y hubo deuda en el historial,
+        # muestra cuanto se presto en el momento: deja ver que la deuda
+        # quedo completamente pagada y esa es la condicion "normal" para
+        # que la desaparezca del rojo del resumen.
+        if saldo >= 0 and max_deuda > 0:
+            self.deudas_pagadas = ("Deudas pagadas: $%s"
+                                   % format(max_deuda, ",.2f"))
+        else:
+            self.deudas_pagadas = ""
 
         self.ids.list_carro.clear_widgets()
         for r in reversed(rows[-50:]):
