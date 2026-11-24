@@ -971,231 +971,247 @@ ScreenManager:
                 bold: True
                 color: 0.08, 0.08, 0.09, 1
 
-        RoundedCard:
-            size_hint_y: None
-            height: '106dp'
-            bg_color: [1, 1, 1, 1]
-            Label:
-                text: root.etiqueta_saldo
-                font_size: '10sp'
-                bold: True
-                color: 0.3, 0.3, 0.35, 1
-                size_hint_y: None
-                height: '14dp'
-            Label:
-                text: root.balance_carro
-                font_size: '30sp'
-                bold: True
-                color: root.color_carro
-                size_hint_y: None
-                height: '40dp'
-            Label:
-                text: root.detalle_carro
-                font_size: '10sp'
-                color: 0.3, 0.3, 0.35, 1
-                size_hint_y: None
-                height: '14dp'
-                text_size: self.width, None
-                halign: 'center'
-
-        GridLayout:
-            cols: 2
-            size_hint_y: None
-            height: '64dp'
-            spacing: 8
-            RoundedCard:
-                bg_color: [1, 1, 1, 1]
-                Label:
-                    text: "Pagado (aportes)"
-                    font_size: '10sp'
-                    bold: True
-                    color: 0.3, 0.3, 0.35, 1
-                    size_hint_y: None
-                    height: '14dp'
-                Label:
-                    text: root.pagado_carro
-                    font_size: '16sp'
-                    bold: True
-                    color: 0.07, 0.65, 0.60, 1
-            RoundedCard:
-                bg_color: [1, 1, 1, 1]
-                Label:
-                    text: "Gastado en el carro"
-                    font_size: '10sp'
-                    bold: True
-                    color: 0.3, 0.3, 0.35, 1
-                    size_hint_y: None
-                    height: '14dp'
-                Label:
-                    text: root.gastado_carro
-                    font_size: '16sp'
-                    bold: True
-                    color: 0.90, 0.30, 0.35, 1
-
-        RoundedCard:
-            size_hint_y: None
-            height: '112dp'
-            bg_color: [1, 1, 1, 1]
-            Label:
-                text: "PAGOS DESDE EL ÚLTIMO GASTO DEL CARRO"
-                font_size: '9sp'
-                bold: True
-                color: 0.3, 0.3, 0.35, 1
-                size_hint_y: None
-                height: '14dp'
-            Label:
-                text: root.periodo_titulo
-                font_size: '10sp'
-                color: 0.3, 0.3, 0.35, 1
-                size_hint_y: None
-                height: '14dp'
-            Label:
-                text: root.periodo_pagado
-                font_size: '16sp'
-                bold: True
-                color: 0.07, 0.65, 0.60, 1
-                size_hint_y: None
-                height: '22dp'
-            Label:
-                text: root.periodo_nota
-                font_size: '10sp'
-                bold: True
-                color: root.color_periodo
-                size_hint_y: None
-                height: '16dp'
-                text_size: self.width, None
-                halign: 'center'
-
-        Button:
-            text: "+ Registrar movimiento" if not root.forma_abierta else "Cerrar formulario"
-            font_size: '12sp'
-            bold: True
-            size_hint_y: None
-            height: '34dp'
-            background_color: 0, 0, 0, 0
-            color: 0.08, 0.08, 0.09, 1
-            canvas.before:
-                Color:
-                    rgba: [1, 1, 1, 0.75]
-                RoundedRectangle:
-                    size: self.size
-                    pos: self.pos
-                    radius: [8]
-            on_press: root.forma_abierta = not root.forma_abierta
-
-        BoxLayout:
-            orientation: 'vertical'
-            size_hint_y: None
-            height: '260dp' if root.forma_abierta else 0
-            opacity: 1 if root.forma_abierta else 0
-            padding: [10, 10]
-            spacing: 8
-            canvas.before:
-                Color:
-                    rgba: [1, 1, 1, 1]
-                RoundedRectangle:
-                    size: self.size
-                    pos: self.pos
-                    radius: [8]
-
-            GridLayout:
-                cols: 2
-                spacing: 8
-                size_hint_y: None
-                height: '190dp'
-
-                FormLabel:
-                    text: "Fecha:"
-                DateInput:
-                    id: c_fecha
-                    text: datetime.now().strftime("%d/%m/%Y")
-                FormLabel:
-                    text: "Tipo:"
-                BoxLayout:
-                    spacing: 5
-                    Button:
-                        id: btn_c_ingreso
-                        text: "Ingreso"
-                        font_size: '11sp'
-                        bold: True
-                        background_color: 0,0,0,0
-                        color: 0.08, 0.08, 0.09, 1
-                        canvas.before:
-                            Color:
-                                rgba: [0.07, 0.65, 0.60, 1] if root.var_c_tipo == 'Ingreso' else [0.95, 0.95, 0.96, 1]
-                            RoundedRectangle:
-                                size: self.size
-                                pos: self.pos
-                                radius: [4]
-                        on_press: root.var_c_tipo = 'Ingreso'
-                    Button:
-                        id: btn_c_gasto
-                        text: "Gasto"
-                        font_size: '11sp'
-                        bold: True
-                        background_color: 0,0,0,0
-                        color: 0.08, 0.08, 0.09, 1
-                        canvas.before:
-                            Color:
-                                rgba: [0.90, 0.30, 0.35, 1] if root.var_c_tipo == 'Gasto' else [0.95, 0.95, 0.96, 1]
-                            RoundedRectangle:
-                                size: self.size
-                                pos: self.pos
-                                radius: [4]
-                        on_press: root.var_c_tipo = 'Gasto'
-
-                FormLabel:
-                    text: "Monto:"
-                CustomTextInput:
-                    id: c_monto
-                    hint_text: "0.00"
-
-                FormLabel:
-                    text: "Categoría:"
-                BoxLayout:
-                    Button:
-                        id: c_cat_btn
-                        text: root.var_c_cat
-                        font_size: '11sp'
-                        background_color: 0,0,0,0
-                        color: 0.08, 0.08, 0.09, 1
-                        canvas.before:
-                            Color:
-                                rgba: [0.3, 0.3, 0.35, 0.15]
-                            RoundedRectangle:
-                                size: self.size
-                                pos: self.pos
-                                radius: [4]
-                        on_press: root.toggle_c_category()
-
-                FormLabel:
-                    text: "Descripción:"
-                CampoSugerencias:
-                    id: c_desc
-                    hint_text: "Nota..."
-
-            AccentButton:
-                text: "Guardar"
-                bg_normal: [0.07, 0.65, 0.60, 1]
-                size_hint_y: None
-                height: '40dp'
-                on_press: root.save_carro()
-
-        Label:
-            text: "Últimos Movimientos"
-            font_size: '13sp'
-            bold: True
-            color: 0.08, 0.08, 0.09, 1
-            size_hint_y: None
-            height: '20dp'
-
         ScrollView:
+            id: scroll_carro
+            do_scroll_x: False
+            bar_width: '4dp'
             BoxLayout:
-                id: list_carro
                 orientation: 'vertical'
                 size_hint_y: None
                 height: self.minimum_height
-                spacing: 6
+                padding: [0, 4, 0, 4]
+                spacing: 10
+
+                RoundedCard:
+                    size_hint_y: None
+                    height: '106dp'
+                    bg_color: [1, 1, 1, 1]
+                    Label:
+                        text: root.etiqueta_saldo
+                        font_size: '10sp'
+                        bold: True
+                        color: 0.3, 0.3, 0.35, 1
+                        size_hint_y: None
+                        height: '14dp'
+                    Label:
+                        text: root.balance_carro
+                        font_size: '30sp'
+                        bold: True
+                        color: root.color_carro
+                        size_hint_y: None
+                        height: '40dp'
+                    Label:
+                        text: root.detalle_carro
+                        font_size: '10sp'
+                        color: 0.3, 0.3, 0.35, 1
+                        size_hint_y: None
+                        height: '14dp'
+                        text_size: self.width, None
+                        halign: 'center'
+
+                GridLayout:
+                    cols: 2
+                    size_hint_y: None
+                    height: '64dp'
+                    spacing: 8
+                    RoundedCard:
+                        bg_color: [1, 1, 1, 1]
+                        Label:
+                            text: "Pagado (aportes)"
+                            font_size: '10sp'
+                            bold: True
+                            color: 0.3, 0.3, 0.35, 1
+                            size_hint_y: None
+                            height: '14dp'
+                        Label:
+                            text: root.pagado_carro
+                            font_size: '16sp'
+                            bold: True
+                            color: 0.07, 0.65, 0.60, 1
+                    RoundedCard:
+                        bg_color: [1, 1, 1, 1]
+                        Label:
+                            text: "Gastado en el carro"
+                            font_size: '10sp'
+                            bold: True
+                            color: 0.3, 0.3, 0.35, 1
+                            size_hint_y: None
+                            height: '14dp'
+                        Label:
+                            text: root.gastado_carro
+                            font_size: '16sp'
+                            bold: True
+                            color: 0.90, 0.30, 0.35, 1
+
+                RoundedCard:
+                    size_hint_y: None
+                    height: '112dp'
+                    bg_color: [1, 1, 1, 1]
+                    Label:
+                        text: "PAGOS DEL CARRO"
+                        font_size: '10sp'
+                        bold: True
+                        color: 0.3, 0.3, 0.35, 1
+                        size_hint_y: None
+                        height: '14dp'
+                    Label:
+                        text: root.periodo_titulo
+                        font_size: '10sp'
+                        bold: True
+                        color: 0.07, 0.65, 0.60, 1
+                        size_hint_y: None
+                        height: '16dp'
+                        text_size: self.width, None
+                        halign: 'center'
+                    Label:
+                        text: root.periodo_pagado
+                        font_size: '10sp'
+                        bold: True
+                        color: 0.07, 0.65, 0.60, 1
+                        size_hint_y: None
+                        height: '16dp'
+                        text_size: self.width, None
+                        halign: 'center'
+                    Label:
+                        text: root.periodo_nota
+                        font_size: '10sp'
+                        bold: True
+                        color: root.color_periodo
+                        size_hint_y: None
+                        height: '16dp'
+                        text_size: self.width, None
+                        halign: 'center'
+
+                Button:
+                    text: "+ Registrar movimiento" if not root.forma_abierta else "Cerrar formulario"
+                    font_size: '12sp'
+                    bold: True
+                    size_hint_y: None
+                    height: '34dp'
+                    background_color: 0, 0, 0, 0
+                    color: 0.08, 0.08, 0.09, 1
+                    canvas.before:
+                        Color:
+                            rgba: [1, 1, 1, 0.75]
+                        RoundedRectangle:
+                            size: self.size
+                            pos: self.pos
+                            radius: [8]
+                    on_press: root.toggle_forma()
+
+                BoxLayout:
+                    id: forma_carro
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: '260dp' if root.forma_abierta else 0
+                    opacity: 1 if root.forma_abierta else 0
+                    padding: [10, 10]
+                    spacing: 8
+                    canvas.before:
+                        Color:
+                            rgba: [1, 1, 1, 1]
+                        RoundedRectangle:
+                            size: self.size
+                            pos: self.pos
+                            radius: [8]
+
+                    GridLayout:
+                        cols: 2
+                        spacing: 8
+                        size_hint_y: None
+                        height: '190dp'
+
+                        FormLabel:
+                            text: "Fecha:"
+                        DateInput:
+                            id: c_fecha
+                            text: datetime.now().strftime("%d/%m/%Y")
+                        FormLabel:
+                            text: "Tipo:"
+                        BoxLayout:
+                            spacing: 5
+                            Button:
+                                id: btn_c_ingreso
+                                text: "Ingreso"
+                                font_size: '11sp'
+                                bold: True
+                                background_color: 0,0,0,0
+                                color: 0.08, 0.08, 0.09, 1
+                                canvas.before:
+                                    Color:
+                                        rgba: [0.07, 0.65, 0.60, 1] if root.var_c_tipo == 'Ingreso' else [0.95, 0.95, 0.96, 1]
+                                    RoundedRectangle:
+                                        size: self.size
+                                        pos: self.pos
+                                        radius: [4]
+                                on_press: root.var_c_tipo = 'Ingreso'
+                            Button:
+                                id: btn_c_gasto
+                                text: "Gasto"
+                                font_size: '11sp'
+                                bold: True
+                                background_color: 0,0,0,0
+                                color: 0.08, 0.08, 0.09, 1
+                                canvas.before:
+                                    Color:
+                                        rgba: [0.90, 0.30, 0.35, 1] if root.var_c_tipo == 'Gasto' else [0.95, 0.95, 0.96, 1]
+                                    RoundedRectangle:
+                                        size: self.size
+                                        pos: self.pos
+                                        radius: [4]
+                                on_press: root.var_c_tipo = 'Gasto'
+
+                        FormLabel:
+                            text: "Monto:"
+                        CustomTextInput:
+                            id: c_monto
+                            hint_text: "0.00"
+
+                        FormLabel:
+                            text: "Categoría:"
+                        BoxLayout:
+                            Button:
+                                id: c_cat_btn
+                                text: root.var_c_cat
+                                font_size: '11sp'
+                                background_color: 0,0,0,0
+                                color: 0.08, 0.08, 0.09, 1
+                                canvas.before:
+                                    Color:
+                                        rgba: [0.3, 0.3, 0.35, 0.15]
+                                    RoundedRectangle:
+                                        size: self.size
+                                        pos: self.pos
+                                        radius: [4]
+                                on_press: root.toggle_c_category()
+
+                        FormLabel:
+                            text: "Descripción:"
+                        CampoSugerencias:
+                            id: c_desc
+                            hint_text: "Nota..."
+
+                    AccentButton:
+                        text: "Guardar"
+                        bg_normal: [0.07, 0.65, 0.60, 1]
+                        size_hint_y: None
+                        height: '40dp'
+                        on_press: root.save_carro()
+
+                Label:
+                    text: "Últimos Movimientos"
+                    font_size: '13sp'
+                    bold: True
+                    color: 0.08, 0.08, 0.09, 1
+                    size_hint_y: None
+                    height: '20dp'
+
+                BoxLayout:
+                    id: list_carro
+                    orientation: 'vertical'
+                    size_hint_y: None
+                    height: self.minimum_height
+                    spacing: 6
 
 
 <StatsScreen>:
@@ -3042,6 +3058,26 @@ class CarroScreen(Screen):
     def on_enter(self, *args):
         self.refresh_all()
 
+    def toggle_forma(self):
+        self.forma_abierta = not self.forma_abierta
+        if self.forma_abierta:
+            # En pantallas bajas el formulario queda debajo del pliegue:
+            # al abrirlo se lleva la vista hasta el, si no parece que el
+            # boton no hizo nada.
+            Clock.schedule_once(self._ir_al_formulario, 0.2)
+
+    def _ir_al_formulario(self, dt):
+        try:
+            self.ids.scroll_carro.scroll_to(self.ids.forma_carro, padding=12)
+        except Exception:
+            pass
+
+    def _volver_arriba(self, dt):
+        try:
+            self.ids.scroll_carro.scroll_y = 1
+        except Exception:
+            pass
+
     def update_c_category_on_type(self, *args):
         self.var_c_cat = "Aporte" if self.var_c_tipo == "Ingreso" else "Combustible"
 
@@ -3078,48 +3114,50 @@ class CarroScreen(Screen):
         self.pagado_carro = f"${tot_ing:,.2f}"
         self.gastado_carro = f"${tot_eg:,.2f}"
 
-        # Pagos de la ultima temporada: desde el ultimo gasto del carro
-        # (el que mueve la deuda) hasta hoy. Asi se ve cuanto se abono
-        # despues de ese gasto y cuanto queda pendiente.
+        # Pagos del carro en dos referencias: desde el ultimo gasto (lo que
+        # se abono despues de la ultima reparacion) y desde que empezo la
+        # deuda (todo lo aportado). Asi el numero no se "reinicia" cuando se
+        # registra un gasto nuevo.
         hoy = datetime.now().strftime("%Y-%m-%d")
         gastos = [r for r in rows if r[2] == "Gasto" and r[1]]
+        if rows:
+            inicio_total = min(r[1] for r in rows if r[1])
+        else:
+            inicio_total = hoy
+
         if gastos:
             inicio = max(r[1] for r in gastos)
-        elif rows:
-            inicio = rows[0][1] or hoy
+            ventana = [r for r in rows if r[1] and inicio <= r[1] <= hoy]
+            pag_ventana = sum(float(r[3]) for r in ventana
+                              if r[2] == "Ingreso")
+            n_ventana = sum(1 for r in ventana if r[2] == "Ingreso")
+            self.periodo_titulo = (
+                "Desde el último gasto (%s): $%s en %d aporte%s"
+                % (_fecha_ddmmaaaa(inicio), format(pag_ventana, ",.2f"),
+                   n_ventana, "" if n_ventana == 1 else "s"))
         else:
-            inicio = hoy
-        hasta = max([hoy] + [r[1] for r in rows if r[1]])
-        ventana = [r for r in rows if r[1] and inicio <= r[1] <= hasta]
-        pag_ventana = sum(float(r[3]) for r in ventana if r[2] == "Ingreso")
-        n_aportes = sum(1 for r in ventana if r[2] == "Ingreso")
-        gas_ventana = sum(float(r[3]) for r in ventana if r[2] == "Gasto")
-        neto = pag_ventana - gas_ventana
+            self.periodo_titulo = "Todavía no hay gastos del carro"
 
-        self.periodo_titulo = ("Del %s al %s" % (_fecha_ddmmaaaa(inicio),
-                                                 _fecha_ddmmaaaa(hasta)))
-        self.periodo_pagado = ("Pagado: $%s en %d aporte%s"
-                               % (format(pag_ventana, ",.2f"), n_aportes,
-                                  "" if n_aportes == 1 else "s"))
-        if not rows:
-            self.periodo_titulo = ""
-            self.periodo_pagado = "Sin movimientos del carro"
+        total_pag = sum(float(r[3]) for r in rows if r[2] == "Ingreso")
+        total_ap = sum(1 for r in rows if r[2] == "Ingreso")
+        if rows:
+            self.periodo_pagado = (
+                "Desde el inicio (%s): $%s en %d aporte%s"
+                % (_fecha_ddmmaaaa(inicio_total), format(total_pag, ",.2f"),
+                   total_ap, "" if total_ap == 1 else "s"))
+            self.periodo_nota = ("Gastos $%s  -  Deuda actual $%s"
+                                 % (format(tot_eg, ",.2f"),
+                                    format(-saldo, ",.2f")))
+            self.color_periodo = [0.90, 0.30, 0.35, 1]
+        else:
+            self.periodo_pagado = ""
             self.periodo_nota = "Registra un aporte o un gasto"
             self.color_periodo = [0.3, 0.3, 0.35, 1]
-        elif neto < 0:
-            self.periodo_nota = ("Gastos $%s - la deuda subió $%s"
-                                 % (format(gas_ventana, ",.2f"),
-                                    format(-neto, ",.2f")))
-            self.color_periodo = [0.90, 0.30, 0.35, 1]
-        elif neto > 0:
-            self.periodo_nota = ("Gastos $%s - la deuda bajó $%s"
-                                 % (format(gas_ventana, ",.2f"),
-                                    format(neto, ",.2f")))
+        if saldo >= 0 and rows:
+            self.periodo_nota = ("Gastos $%s  -  Saldo a favor $%s"
+                                 % (format(tot_eg, ",.2f"),
+                                    format(saldo, ",.2f")))
             self.color_periodo = [0.07, 0.65, 0.60, 1]
-        else:
-            self.periodo_nota = ("Gastos $%s - la deuda quedó igual"
-                                 % format(gas_ventana, ",.2f"))
-            self.color_periodo = [0.3, 0.3, 0.35, 1]
 
         # Saldo acumulado despues de cada movimiento, para poder auditar
         # la deuda linea por linea.
@@ -3151,7 +3189,7 @@ class CarroScreen(Screen):
         if not fecha_db:
             return
         try:
-            monto = float(monto_s)
+            monto = float(monto_s.replace(",", "."))
         except:
             mostrar_error("El monto debe ser un número válido.\nEjemplo: 15.00")
             return
@@ -3162,6 +3200,10 @@ class CarroScreen(Screen):
         self.refresh_all()
         self.ids.c_monto.text = ""
         self.ids.c_desc.text = ""
+        # Al guardar se cierra el formulario y se sube a la deuda: asi se ve
+        # de inmediato el movimiento nuevo en la lista y como quedo el saldo.
+        self.forma_abierta = False
+        Clock.schedule_once(self._volver_arriba, 0.25)
 
     def delete_item(self, tid):
         conn = get_db_connection()

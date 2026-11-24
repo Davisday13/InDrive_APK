@@ -6,6 +6,6 @@ buildozer.spec. VERSION_CODE es el numero que Android usa para saber si una
 version es mas nueva que otra: siempre debe subir, nunca volver atras.
 """
 
-VERSION = "1.1.25"
-VERSION_CODE = 135
-NOTA = "Fondo del Carro con la deuda clara: ves la deuda pendiente, el total pagado y gastado, y una tarjeta con los pagos desde el último gasto del carro (con las fechas y cuántos aportes). En la lista cada movimiento muestra la deuda que queda después de ese aporte o gasto. El formulario queda plegado tras el botón Registrar movimiento."
+VERSION = "1.1.26"
+VERSION_CODE = 136
+NOTA = "Fondo del Carro: toda la pantalla se desliza, así el formulario de Registrar movimiento ya se puede usar completo (antes en pantallas bajas el botón Guardar quedaba fuera). Al abrirlo la vista baja sola hasta el formulario y al guardar se cierra y vuelve arriba. También acepta montos con coma (45,50) y la tarjeta de pagos muestra dos referencias fijas: desde el último gasto y desde el inicio de la deuda."
