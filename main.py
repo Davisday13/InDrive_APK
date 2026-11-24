@@ -20,6 +20,7 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.clock import Clock
 from kivy.graphics import Color, RoundedRectangle, Line, Rectangle
@@ -1082,29 +1083,19 @@ ScreenManager:
                         text_size: self.width, None
                         halign: 'center'
 
-                Button:
-                    text: "+ Registrar movimiento" if not root.forma_abierta else "Cerrar formulario"
+                Label:
+                    text: "Registrar en el carro"
                     font_size: '12sp'
                     bold: True
-                    size_hint_y: None
-                    height: '34dp'
-                    background_color: 0, 0, 0, 0
                     color: 0.08, 0.08, 0.09, 1
-                    canvas.before:
-                        Color:
-                            rgba: [1, 1, 1, 0.75]
-                        RoundedRectangle:
-                            size: self.size
-                            pos: self.pos
-                            radius: [8]
-                    on_press: root.toggle_forma()
+                    size_hint_y: None
+                    height: '20dp'
 
                 BoxLayout:
                     id: forma_carro
                     orientation: 'vertical'
                     size_hint_y: None
-                    height: '260dp' if root.forma_abierta else 0
-                    opacity: 1 if root.forma_abierta else 0
+                    height: '260dp'
                     padding: [10, 10]
                     spacing: 8
                     canvas.before:
@@ -1169,21 +1160,15 @@ ScreenManager:
 
                         FormLabel:
                             text: "Categoría:"
-                        BoxLayout:
-                            Button:
-                                id: c_cat_btn
-                                text: root.var_c_cat
-                                font_size: '11sp'
-                                background_color: 0,0,0,0
-                                color: 0.08, 0.08, 0.09, 1
-                                canvas.before:
-                                    Color:
-                                        rgba: [0.3, 0.3, 0.35, 0.15]
-                                    RoundedRectangle:
-                                        size: self.size
-                                        pos: self.pos
-                                        radius: [4]
-                                on_press: root.toggle_c_category()
+                        Spinner:
+                            id: c_cat_spinner
+                            text: root.var_c_cat
+                            values: ('Combustible', 'Repuestos', 'Mantenimiento', 'Lavado', 'Otros') if root.var_c_tipo == 'Gasto' else ('Aporte', 'Otros')
+                            font_size: '11sp'
+                            bold: True
+                            background_color: [0.95, 0.95, 0.96, 1]
+                            color: 0.08, 0.08, 0.09, 1
+                            on_text: root.var_c_cat = self.text
 
                         FormLabel:
                             text: "Descripción:"
@@ -1199,6 +1184,7 @@ ScreenManager:
                         on_press: root.save_carro()
 
                 Label:
+                    id: lbl_mov_carro
                     text: "Últimos Movimientos"
                     font_size: '13sp'
                     bold: True
@@ -3024,11 +3010,8 @@ class CarroScreen(Screen):
     periodo_pagado = StringProperty("")
     periodo_nota = StringProperty("")
     color_periodo = ObjectProperty([0.3, 0.3, 0.35, 1])
-    forma_abierta = BooleanProperty(False)
-    aviso_carro = StringProperty("")
-    color_aviso_carro = ObjectProperty([0.3, 0.3, 0.35, 1])
     var_c_tipo = StringProperty("Gasto")
-    var_c_cat = StringProperty("Combustible")
+    var_c_cat = StringProperty("Mantenimiento")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -3058,36 +3041,17 @@ class CarroScreen(Screen):
     def on_enter(self, *args):
         self.refresh_all()
 
-    def toggle_forma(self):
-        self.forma_abierta = not self.forma_abierta
-        if self.forma_abierta:
-            # En pantallas bajas el formulario queda debajo del pliegue:
-            # al abrirlo se lleva la vista hasta el, si no parece que el
-            # boton no hizo nada.
-            Clock.schedule_once(self._ir_al_formulario, 0.2)
-
-    def _ir_al_formulario(self, dt):
+    def _ir_a_movimientos(self, dt):
+        """Después de registrar, sube la vista al listado para ver el
+        movimiento nuevo."""
         try:
-            self.ids.scroll_carro.scroll_to(self.ids.forma_carro, padding=12)
-        except Exception:
-            pass
-
-    def _volver_arriba(self, dt):
-        try:
-            self.ids.scroll_carro.scroll_y = 1
+            self.ids.scroll_carro.scroll_to(self.ids.lbl_mov_carro,
+                                            padding=12)
         except Exception:
             pass
 
     def update_c_category_on_type(self, *args):
         self.var_c_cat = "Aporte" if self.var_c_tipo == "Ingreso" else "Combustible"
-
-    def toggle_c_category(self):
-        cats = ["Aporte", "Otros"] if self.var_c_tipo == "Ingreso" else ["Combustible", "Repuestos", "Mantenimiento", "Lavado", "Otros"]
-        try:
-            idx = cats.index(self.var_c_cat)
-            self.var_c_cat = cats[(idx + 1) % len(cats)]
-        except:
-            self.var_c_cat = cats[0]
 
     def refresh_all(self):
         conn = get_db_connection()
@@ -3200,10 +3164,9 @@ class CarroScreen(Screen):
         self.refresh_all()
         self.ids.c_monto.text = ""
         self.ids.c_desc.text = ""
-        # Al guardar se cierra el formulario y se sube a la deuda: asi se ve
-        # de inmediato el movimiento nuevo en la lista y como quedo el saldo.
-        self.forma_abierta = False
-        Clock.schedule_once(self._volver_arriba, 0.25)
+        # Después de guardar, baja hasta el listado para ver el movimiento
+        # nuevo y la deuda actualizada.
+        Clock.schedule_once(self._ir_a_movimientos, 0.3)
 
     def delete_item(self, tid):
         conn = get_db_connection()
