@@ -8,4 +8,4 @@ version es mas nueva que otra: siempre debe subir, nunca volver atras.
 
 VERSION = "1.1.27"
 VERSION_CODE = 137
-NOTA = "Pantalla Fondo del Carro: el formulario para registrar daño o mantenimiento ahora está visible y completo en la misma pantalla de resumen; Categoría incluye Mantenimiento y conseguí. Al guardar, la deuda y el listado se actualizan."
+NOTA = "Pantalla Fondo del Carro: el formulario para registrar daño o mantenimiento ahora está visible y completo en la misma pantalla de resumen; la Categoría incluye Mantenimiento. Al guardar, la deuda y el listado se actualizan."
